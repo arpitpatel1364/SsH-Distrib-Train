@@ -1,0 +1,49 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: yolo-worker
+  labels:
+    app: yolo-worker
+spec:
+  serviceName: yolo-worker-service
+  replicas: 2
+  selector:
+    matchLabels:
+      app: yolo-worker
+  template:
+    metadata:
+      labels:
+        app: yolo-worker
+    spec:
+      containers:
+      - name: worker
+        image: yolo-cluster-worker:latest
+        ports:
+        - containerPort: 22
+          name: ssh
+        - containerPort: 29500
+          name: ddp
+        resources:
+          limits:
+            nvidia.com/gpu: 1  # Standard K8s GPU allocation
+        volumeMounts:
+        - name: authorized-keys
+          mountPath: /home/ubuntu/.ssh
+      volumes:
+      - name: authorized-keys
+        configMap:
+          name: worker-authorized-keys
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: yolo-worker-service
+spec:
+  clusterIP: None
+  selector:
+    app: yolo-worker
+  ports:
+  - name: ssh
+    port: 22
+  - name: ddp
+    port: 29500

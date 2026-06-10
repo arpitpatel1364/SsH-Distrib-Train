@@ -1,0 +1,43 @@
+version: '3.8'
+
+services:
+  master:
+    build:
+      context: .
+      dockerfile: Dockerfile.master
+    container_name: yolo-master
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./backend:/app/backend
+      # Mount master host ssh keys to allow connecting to workers
+      - ~/.ssh:/root/.ssh:ro
+    networks:
+      - cluster-net
+    depends_on:
+      - worker1
+      - worker2
+
+  worker1:
+    build:
+      context: .
+      dockerfile: Dockerfile.worker
+    container_name: yolo-worker-1
+    ports:
+      - "2221:22"
+    networks:
+      - cluster-net
+
+  worker2:
+    build:
+      context: .
+      dockerfile: Dockerfile.worker
+    container_name: yolo-worker-2
+    ports:
+      - "2222:22"
+    networks:
+      - cluster-net
+
+networks:
+  cluster-net:
+    driver: bridge

@@ -1,18 +1,17 @@
-# 🚀 Distributed YOLO Cluster End-to-End Setup Guide
+#  Distributed YOLO Cluster End-to-End Setup Guide
 
 This guide describes how to configure, deploy, and execute the Distributed YOLOv8 training system across multiple nodes.
 
 ---
 
-## 📋 Prerequisites & Architecture
-
+##  Prerequisites & Architecture
 The system consists of:
 1. **Master Orchestrator**: Runs the FastAPI backend (which natively serves the Vanilla JS dashboard). Manages job scheduling, database storage (SQLite), telemetry, and parallel SSH triggers.
 2. **Worker Nodes**: Physical or virtual machine nodes containing GPUs (or CPUs) where `torchrun` executes the DDP training script in parallel.
 
 ---
 
-## 🛠️ Step 1: Master Orchestrator Setup
+##  Step 1: Master Orchestrator Setup
 
 ### 1. Install System Dependencies
 Ensure you have Python 3.8+ installed on the master machine (Node.js and npm are no longer required):
@@ -36,7 +35,7 @@ This script initializes the local virtual environment and installs:
 
 ---
 
-## 🖥️ Step 2: Worker Nodes Provisioning
+##  Step 2: Worker Nodes Provisioning
 
 To enable DDP initialization and DDP-safe checkpoint recovery, each worker node must be prepared to accept parallel execution commands.
 
@@ -72,7 +71,7 @@ To start the unified FastAPI backend server and dashboard (listening on port `80
 
 ---
 
-## 🖥️ Step 4: Step-by-Step Training Execution Workflow
+## Step 4: Step-by-Step Training Execution Workflow
 
 1. **Access the Dashboard**: Open your browser and navigate to `http://localhost:8000`.
 2. **Log In**: Authenticate using the default admin account:

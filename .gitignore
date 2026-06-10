@@ -20,8 +20,19 @@ wheels/
 *.egg-info/
 .installed.cfg
 *.egg
-*.db
-*.sqlite3
 .tempmediaStorage/
 .gemini/
 project/node_modules/
+
+# Logs and databases
+*.log
+*.sqlite3
+*.db
+
+# Environment and IDEs
+.env
+.env.local
+.vscode/
+.idea/
+.DS_Store
+__pycache__/

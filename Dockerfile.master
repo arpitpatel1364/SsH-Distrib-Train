@@ -1,0 +1,23 @@
+FROM python:3.10-slim
+
+WORKDIR /app
+
+# Install system dependencies (SSH utilities, etc.)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    openssh-client \
+    rsync \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install python dependencies
+COPY scripts/install.sh /app/scripts/install.sh
+RUN pip install --no-cache-dir fastapi uvicorn sqlalchemy paramiko python-jose[cryptography] passlib[bcrypt] pydantic cryptography
+
+# Copy backend codebase
+COPY backend/ /app/backend/
+
+# Create ssh key directory for paramiko
+RUN mkdir -p /root/.ssh && chmod 700 /root/.ssh
+
+EXPOSE 8000
+
+CMD ["uvicorn", "backend.main:app", "--host", "0.0.0.0", "--port", "8000"]

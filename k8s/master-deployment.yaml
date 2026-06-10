@@ -1,0 +1,48 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: yolo-master
+  labels:
+    app: yolo-master
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: yolo-master
+  template:
+    metadata:
+      labels:
+        app: yolo-master
+    spec:
+      containers:
+      - name: master
+        image: yolo-cluster-master:latest
+        ports:
+        - containerPort: 8000
+        volumeMounts:
+        - name: ssh-keys
+          mountPath: /root/.ssh
+          readOnly: true
+        - name: db-data
+          mountPath: /app/data
+      volumes:
+      - name: ssh-keys
+        secret:
+          secretName: master-ssh-keys
+          defaultMode: 256
+      - name: db-data
+        persistentVolumeClaim:
+          claimName: yolo-db-pvc
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: yolo-master-service
+spec:
+  type: ClusterIP
+  selector:
+    app: yolo-master
+  ports:
+  - name: api
+    port: 8000
+    targetPort: 8000

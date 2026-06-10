@@ -1,0 +1,36 @@
+FROM pytorch/pytorch:2.1.0-cuda12.1-cudnn8-runtime
+
+WORKDIR /app
+
+# Install SSH server, rsync, and system packages
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    openssh-server \
+    rsync \
+    sudo \
+    && rm -rf /var/lib/apt/lists/*
+
+# Setup SSH Server configuration
+RUN mkdir /var/run/sshd
+RUN echo 'root:root123' | chpasswd
+RUN sed -i 's/#PermitRootLogin prohibit-password/PermitRootLogin yes/' /etc/ssh/sshd_config
+RUN sed -i 's/#PasswordAuthentication yes/PasswordAuthentication yes/' /etc/ssh/sshd_config
+
+# Create a non-root ssh user matching our master defaults
+RUN useradd -rm -d /home/ubuntu -s /bin/bash -g root -G sudo -u 1000 ubuntu
+RUN echo 'ubuntu:ubuntu' | chpasswd
+RUN echo "ubuntu ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers
+
+# Setup SSH folder for key exchange
+RUN mkdir -p /home/ubuntu/.ssh && chmod 700 /home/ubuntu/.ssh && chown -R ubuntu:root /home/ubuntu/.ssh
+
+# Copy worker code dependencies
+COPY worker/requirements.txt /app/requirements.txt
+RUN pip install --no-cache-dir -r /app/requirements.txt
+
+# Copy worker trainer code
+COPY worker/ /home/ubuntu/worker/
+RUN chown -R ubuntu:root /home/ubuntu/worker
+
+EXPOSE 22 29500
+
+CMD ["/usr/sbin/sshd", "-D"]
