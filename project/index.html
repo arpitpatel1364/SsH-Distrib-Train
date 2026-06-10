@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Distributed YOLO Cluster Orchestrator</title>
+  <link rel="stylesheet" href="styles.css">
+  <script src="script.js" defer></script>
+</head>
+<body>
+
+  <div id="app-layout">
+    <!-- 1. LOGIN SCREEN -->
+    <div id="login-screen" class="login-wrapper">
+      <div class="glass-card login-card">
+        <div class="login-header">
+          <!-- Shield Icon SVG -->
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" /></svg>
+          <h2 class="login-title">YOLO CLUSTER LOGIN</h2>
+        </div>
+        
+        <form id="login-form" class="login-form">
+          <div class="form-group">
+            <label class="form-label">Username</label>
+            <input type="text" id="username" class="glass-input" placeholder="Enter admin username" required>
+          </div>
+          
+          <div class="form-group">
+            <label class="form-label">Password</label>
+            <input type="password" id="password" class="glass-input" placeholder="Enter password" required>
+          </div>
+          
+          <div id="auth-error" class="error-message hidden"></div>
+          
+          <button type="submit" class="btn-primary">Authenticate</button>
+          
+          <div class="form-label text-center text-xs">
+            Tip: Use seeded account (admin / admin123)
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <!-- 2. DASHBOARD VIEW -->
+    <div id="dashboard-view" class="hidden flex-col min-h-screen">
+      <!-- Header Bar -->
+      <header>
+        <div class="header-left">
+          <!-- CPU Icon SVG -->
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="16" height="16" rx="2" /><rect x="9" y="9" width="6" height="6" /><path d="M9 1v3M15 1v3M9 20v3M15 20v3M20 9h3M20 15h3M1 9h3M1 15h3" /></svg>
+          <h1>Distributed YOLO Cluster</h1>
+          <span class="live-indicator">
+            <span id="ws-status-dot" class="indicator-dot disconnected"></span>
+            <span id="ws-status-text">DISCONNECTED</span>
+          </span>
+        </div>
+        
+        <div class="header-right">
+          <button id="btn-theme-toggle" class="btn-secondary p-sm text-sm">
+            🌙 Dark
+          </button>
+          <span class="text-md color-muted">Admin Mode</span>
+          <button id="btn-logout" class="btn-secondary p-sm text-sm">
+            <!-- Logout Icon SVG -->
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9" /></svg>
+            Log Out
+          </button>
+        </div>
+      </header>
+
+      <!-- Main Grid Layout -->
+      <div class="dashboard-grid">
+        
+        <!-- Left Side: Nodes Panel -->
+        <div class="col-8">
+          <div class="glass-card h-full flex-col gap-xl">
+            <div class="flex-row justify-between align-center">
+              <h3 class="text-lg font-semibold" id="nodes-count-header">Cluster Nodes (0)</h3>
+            </div>
+            
+            <div id="nodes-container" class="nodes-grid">
+              <!-- Node cards will be dynamically injected here -->
+            </div>
+          </div>
+        </div>
+
+        <!-- Right Side Panel -->
+        <div class="col-4 flex-col gap-xl">
+          <!-- Add Node Form -->
+          <div class="glass-card flex-col gap-lg">
+            <h3 class="text-lg font-semibold">Add Cluster Node</h3>
+            <form id="add-node-form" class="flex-col gap-md">
+              <div class="form-group">
+                <label class="form-label">IP Address</label>
+                <input type="text" id="node-ip" class="glass-input" placeholder="e.g. 192.168.1.100" required>
+              </div>
+
+              <div class="flex-row gap-sm">
+                <div class="form-group flex-2">
+                  <label class="form-label">SSH User</label>
+                  <input type="text" id="node-user" class="glass-input" value="ubuntu" required>
+                </div>
+                <div class="form-group flex-1">
+                  <label class="form-label">SSH Port</label>
+                  <input type="text" id="node-port" class="glass-input" value="22" required>
+                </div>
+              </div>
+
+              <div id="node-message" class="text-sm color-primary hidden"></div>
+
+              <button type="submit" id="btn-add-node" class="btn-primary">
+                <!-- Plus Icon SVG -->
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" /></svg>
+                Add Node
+              </button>
+            </form>
+          </div>
+
+          <!-- Job Scheduler Form / Status -->
+          <div class="glass-card flex-col gap-lg">
+            <h3 class="text-lg font-semibold">Job Scheduler</h3>
+            
+            <!-- Dynamic scheduler section -->
+            <div id="scheduler-content">
+              <!-- Setup or active state details will be rendered here -->
+            </div>
+          </div>
+        </div>
+
+        <!-- Telemetry Charts -->
+        <div class="col-8">
+          <div class="glass-card flex-col gap-xl">
+            <h3 class="text-lg font-semibold">Distributed Training Metrics</h3>
+            <div class="charts-grid">
+              <div class="chart-card">
+                <h4 class="chart-title">Loss Curve (Box + Cls Loss)</h4>
+                <div id="loss-chart-container">
+                  <!-- Loss SVG Chart will be injected here -->
+                </div>
+              </div>
+              <div class="chart-card">
+                <h4 class="chart-title">Accuracy Metric (mAP @ 0.5)</h4>
+                <div id="map-chart-container">
+                  <!-- mAP SVG Chart will be injected here -->
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Master Orchestrator Terminal Logs -->
+        <div class="col-12">
+          <div class="glass-card flex-col gap-md">
+            <div class="flex-row justify-between align-center">
+              <div class="flex-row align-center gap-sm">
+                <!-- Terminal Icon SVG -->
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 17 10 11 4 5" /><line x1="12" y1="19" x2="20" y2="19" /></svg>
+                <h3 class="text-lg font-semibold">Master SSH Orchestrator Logs</h3>
+              </div>
+              <div class="text-xs color-muted">Active Session</div>
+            </div>
+            
+            <div id="terminal-screen" class="terminal-screen">
+              <!-- Logs will scroll here -->
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+</body>
+</html>
