@@ -89,7 +89,7 @@ def scrape_gpu_metrics():
 
 # Start background scraper thread
 daemon_thread = threading.Thread(target=scrape_gpu_metrics, daemon=True)
-daemon_thread.start()
+# daemon_thread.start() # Disabled in favor of direct worker push heartbeats
 
 @router.get("/metrics", response_model=dict[str, list[NodeMetricResponse]])
 def get_metrics(

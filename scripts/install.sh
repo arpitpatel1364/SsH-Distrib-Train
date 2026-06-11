@@ -1,13 +1,16 @@
 #!/bin/bash
 # Master node setup installer
 
+# Change to the project root directory
+cd "$(dirname "$0")/.."
+
 echo "=== Creating Virtual Environment ==="
 python3 -m venv venv
 source venv/bin/activate
 
-echo "=== Installing Backend dependencies ==="
+echo "=== Installing dependencies ==="
 pip install --upgrade pip
-pip install fastapi uvicorn sqlalchemy paramiko python-jose[cryptography] passlib[bcrypt] pydantic cryptography
+pip install -r requirements.txt
 
 echo "=== Setup complete ==="
 

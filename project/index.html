@@ -3,172 +3,851 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Distributed YOLO Cluster Orchestrator</title>
+  <title>Cactus Cluster Orchestrator</title>
+  <link rel="icon" href="static/favicon.png" type="image/png">
+  
+  <!-- Local Stylesheets -->
   <link rel="stylesheet" href="styles.css">
-  <script src="script.js" defer></script>
+  
+  <style>
+    /* Immediate/Loading Spinner Styles */
+    #initial-loading {
+      position: fixed;
+      inset: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      background-color: var(--bg-page, #0f1117);
+      z-index: 9999;
+      transition: opacity 0.3s ease, visibility 0.3s ease;
+    }
+    .spinner {
+      width: 44px;
+      height: 44px;
+      border: 3.5px solid var(--border-strong, #2d3748);
+      border-top-color: var(--primary, #72a954);
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+    /* Grid adjustments for premium aesthetics */
+    .dashboard-layout {
+      display: grid;
+      grid-template-columns: 240px 1fr;
+      min-height: 100vh;
+    }
+    aside {
+      background: var(--bg-surface);
+      border-right: 1px solid var(--border-default);
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      height: 100vh;
+      position: sticky;
+      top: 0;
+      padding: 24px 16px;
+    }
+    .nav-logo {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding-bottom: 24px;
+      border-bottom: 1px solid var(--border-subtle);
+      margin-bottom: 20px;
+    }
+    .nav-logo img {
+      height: 28px;
+    }
+    .nav-logo-title {
+      font-weight: 700;
+      font-size: var(--text-md);
+      letter-spacing: 0.5px;
+      color: var(--text-primary);
+    }
+    .nav-links {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      flex: 1;
+    }
+    .nav-item {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 10px 14px;
+      color: var(--text-secondary);
+      border-radius: var(--radius-sm);
+      text-decoration: none;
+      font-size: var(--text-sm);
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.15s ease;
+      background: none;
+      border: none;
+      width: 100%;
+      text-align: left;
+    }
+    .nav-item:hover {
+      background: var(--bg-hover);
+      color: var(--text-primary);
+    }
+    .nav-item.active {
+      background: var(--status-online-dim);
+      color: var(--primary);
+    }
+    .nav-item svg {
+      width: 18px;
+      height: 18px;
+      flex-shrink: 0;
+    }
+    .nav-footer {
+      padding-top: 16px;
+      border-top: 1px solid var(--border-subtle);
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .nav-footer img {
+      height: 70px;
+      align-self: flex-start;
+      opacity: 0.85;
+    }
+    .main-panel {
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+      overflow-y: auto;
+    }
+    .topbar {
+      height: 64px;
+      background: var(--bg-surface);
+      border-bottom: 1px solid var(--border-default);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 0 32px;
+      position: sticky;
+      top: 0;
+      z-index: 100;
+    }
+    .content-area {
+      padding: 32px;
+      flex: 1;
+      max-width: 1600px;
+      width: 100%;
+      margin: 0 auto;
+    }
+    /* Stats Grid Custom style */
+    .stat-card-custom {
+      background: var(--bg-surface);
+      border: 1px solid var(--border-default);
+      border-left: 3.5px solid var(--accent-color, var(--primary));
+      border-radius: var(--radius-md);
+      padding: 20px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      box-shadow: var(--shadow-stat-card);
+      transition: transform 0.15s, box-shadow 0.15s;
+    }
+    .stat-card-custom:hover {
+      transform: translateY(-2px);
+      box-shadow: var(--shadow-md);
+    }
+    .stat-circle {
+      width: 38px;
+      height: 38px;
+      border-radius: 50%;
+      background: var(--circle-bg);
+      color: var(--accent-color);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .stat-circle svg {
+      width: 18px;
+      height: 18px;
+    }
+    .stat-val {
+      font-size: var(--text-2xl);
+      font-weight: 800;
+      line-height: 1.2;
+      color: var(--text-primary);
+    }
+    .stat-lbl {
+      font-size: var(--text-xs);
+      font-weight: 600;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-top: 4px;
+    }
+    /* Node list style */
+    .node-item-mini {
+      border: 1px solid var(--border-default);
+      background: var(--bg-surface);
+      border-radius: var(--radius-sm);
+      padding: 12px 16px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 8px;
+    }
+    .status-pill {
+      font-size: var(--text-xs);
+      padding: 3px 8px;
+      border-radius: var(--radius-pill);
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    /* Modal styles */
+    .modal-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.65);
+      backdrop-filter: blur(4px);
+      z-index: 1000;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      opacity: 0;
+      visibility: hidden;
+      transition: all 0.2s ease;
+    }
+    .modal-overlay.open {
+      opacity: 1;
+      visibility: visible;
+    }
+    .modal-card {
+      background: var(--bg-elevated);
+      border: 1px solid var(--border-strong);
+      border-radius: var(--radius-lg);
+      width: 100%;
+      max-width: 500px;
+      box-shadow: var(--shadow-modal);
+      overflow: hidden;
+      transform: translateY(20px);
+      transition: transform 0.2s ease;
+    }
+    .modal-overlay.open .modal-card {
+      transform: translateY(0);
+    }
+    .modal-header {
+      padding: 18px 24px;
+      border-bottom: 1px solid var(--border-default);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .modal-title {
+      font-size: var(--text-md);
+      font-weight: 600;
+      color: var(--text-primary);
+    }
+    .modal-body {
+      padding: 24px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+    .modal-footer {
+      padding: 16px 24px;
+      background: var(--bg-surface);
+      border-top: 1px solid var(--border-default);
+      display: flex;
+      justify-content: flex-end;
+      gap: 12px;
+    }
+    
+    /* Custom charts styles */
+    .svg-chart-container {
+      position: relative;
+      width: 100%;
+      height: 200px;
+      background: var(--bg-surface);
+      border-radius: var(--radius-sm);
+      overflow: hidden;
+    }
+    
+    /* Loss/Metrics box */
+    .loss-metrics-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 12px;
+      margin-top: 12px;
+    }
+    .loss-metric-pill {
+      background: var(--bg-muted);
+      border: 1px solid var(--border-default);
+      padding: 8px;
+      border-radius: var(--radius-sm);
+      text-align: center;
+    }
+    .loss-metric-val {
+      font-family: var(--font-mono);
+      font-size: var(--text-sm);
+      font-weight: 600;
+      color: var(--text-primary);
+    }
+    .loss-metric-lbl {
+      font-size: 10px;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      margin-top: 2px;
+    }
+    
+    /* Progress bar with shimmer effect */
+    .shimmer-progress-bg {
+      background: var(--border-default);
+      height: 12px;
+      border-radius: var(--radius-pill);
+      overflow: hidden;
+      position: relative;
+    }
+    .shimmer-progress-bar {
+      height: 100%;
+      background: var(--primary-gradient);
+      width: 0%;
+      transition: width 0.4s ease;
+      position: relative;
+    }
+    .shimmer-progress-bar::after {
+      content: "";
+      position: absolute;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background: linear-gradient(
+        90deg,
+        rgba(255, 255, 255, 0) 0%,
+        rgba(255, 255, 255, 0.25) 50%,
+        rgba(255, 255, 255, 0) 100%
+      );
+      animation: progress-shimmer 1.8s infinite;
+      transform: translateX(-100%);
+    }
+    @keyframes progress-shimmer {
+      100% { transform: translateX(100%); }
+    }
+    
+    /* Monospace Console Styling */
+    .console-line {
+      display: flex;
+      margin-bottom: 4px;
+      font-family: var(--font-mono);
+      font-size: var(--text-sm);
+      line-height: 1.5;
+    }
+    .console-time {
+      color: var(--text-muted);
+      width: 75px;
+      flex-shrink: 0;
+    }
+    .console-node {
+      color: var(--primary-light);
+      width: 85px;
+      flex-shrink: 0;
+    }
+    .console-msg {
+      flex: 1;
+      white-space: pre-wrap;
+    }
+    .console-msg.error {
+      color: var(--danger);
+    }
+    .console-msg.warning {
+      color: var(--warning);
+    }
+  </style>
 </head>
 <body>
 
-  <div id="app-layout">
-    <!-- 1. LOGIN SCREEN -->
-    <div id="login-screen" class="login-wrapper">
-      <div class="glass-card login-card">
-        <div class="login-header">
-          <!-- Shield Icon SVG -->
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" /></svg>
-          <h2 class="login-title">YOLO CLUSTER LOGIN</h2>
-        </div>
-        
-        <form id="login-form" class="login-form">
-          <div class="form-group">
-            <label class="form-label">Username</label>
-            <input type="text" id="username" class="glass-input" placeholder="Enter admin username" required>
-          </div>
-          
-          <div class="form-group">
-            <label class="form-label">Password</label>
-            <input type="password" id="password" class="glass-input" placeholder="Enter password" required>
-          </div>
-          
-          <div id="auth-error" class="error-message hidden"></div>
-          
-          <button type="submit" class="btn-primary">Authenticate</button>
-          
-          <div class="form-label text-center text-xs">
-            Tip: Use seeded account (admin / admin123)
-          </div>
-        </form>
-      </div>
+  <!-- 1. INITIAL LOADING SCREEN (Shows by default, hidden by script) -->
+  <div id="initial-loading">
+    <div class="spinner"></div>
+    <div style="margin-top: 16px; color: var(--text-secondary); font-size: 14px; font-weight: 500; font-family: var(--font-ui)">
+      Loading Cactus Cluster...
     </div>
+  </div>
 
-    <!-- 2. DASHBOARD VIEW -->
-    <div id="dashboard-view" class="hidden flex-col min-h-screen">
-      <!-- Header Bar -->
-      <header>
+  <!-- 2. LOGIN SCREEN -->
+  <div id="login-screen" class="login-wrapper hidden">
+    <div class="login-card glass-card">
+      <div class="login-header">
+        <img src="static/favicon.png" alt="Cactus Logo" style="height: 36px;">
+        <span class="login-title">CACTUS CLUSTER</span>
+      </div>
+      <form id="login-form" class="login-form">
+        <div class="form-group">
+          <label class="form-label" for="username">Username</label>
+          <input class="glass-input" type="text" id="username" placeholder="Enter username" required autocomplete="username">
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="password">Password</label>
+          <input class="glass-input" type="password" id="password" placeholder="Enter password" required autocomplete="current-password">
+        </div>
+        <div id="auth-error" class="error-message hidden"></div>
+        <button type="submit" class="btn-primary" style="margin-top: 10px; height: 44px;">
+          Authenticate
+        </button>
+      </form>
+    </div>
+  </div>
+
+  <!-- 3. MAIN DASHBOARD LAYOUT -->
+  <div id="app-layout" class="dashboard-layout hidden">
+    
+    <!-- Sidebar Navigation -->
+    <aside>
+      <div class="flex-col" style="height: 100%;">
+        <div class="nav-logo">
+          <img src="static/favicon.png" alt="Cactus Logo">
+          <span class="nav-logo-title">CACTUS DDP</span>
+        </div>
+        
+        <!-- Navigation Buttons -->
+        <nav class="nav-links">
+          <button class="nav-item active" data-view="dashboard" id="nav-btn-dashboard">
+            <span class="icon-slot" data-icon="Dashboard"></span>
+            Dashboard
+          </button>
+          <button class="nav-item" data-view="nodes" id="nav-btn-nodes">
+            <span class="icon-slot" data-icon="Nodes"></span>
+            Cluster Nodes
+          </button>
+          <button class="nav-item" data-view="training" id="nav-btn-training">
+            <span class="icon-slot" data-icon="Training"></span>
+            Launch Training
+          </button>
+          <button class="nav-item" data-view="monitor" id="nav-btn-monitor">
+            <span class="icon-slot" data-icon="Monitor"></span>
+            Real-time Metrics
+          </button>
+          <button class="nav-item" data-view="logs" id="nav-btn-logs">
+            <span class="icon-slot" data-icon="Logs"></span>
+            System Logs
+          </button>
+          <button class="nav-item" data-view="history" id="nav-btn-history">
+            <span class="icon-slot" data-icon="History"></span>
+            Job History
+          </button>
+          <button class="nav-item" data-view="ota" id="nav-btn-ota">
+            <span class="icon-slot" data-icon="Ota"></span>
+            OTA Sync
+          </button>
+          <button class="nav-item" data-view="settings" id="nav-btn-settings">
+            <span class="icon-slot" data-icon="Settings"></span>
+            System Settings
+          </button>
+        </nav>
+        
+        <!-- Sidebar Footer -->
+        <div class="nav-footer">
+          <img src="static/powered-by-logo.png" alt="Camsense Logo">
+          <div style="font-size: 10px; color: var(--text-muted); line-height: 1.4;">
+            Cactus DDP Training Cluster
+          </div>
+        </div>
+      </div>
+    </aside>
+
+    <!-- Main Content Panel -->
+    <div class="main-panel">
+      <!-- Topbar Header -->
+      <div class="topbar">
         <div class="header-left">
-          <!-- CPU Icon SVG -->
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="16" height="16" rx="2" /><rect x="9" y="9" width="6" height="6" /><path d="M9 1v3M15 1v3M9 20v3M15 20v3M20 9h3M20 15h3M1 9h3M1 15h3" /></svg>
-          <h1>Distributed YOLO Cluster</h1>
-          <span class="live-indicator">
-            <span id="ws-status-dot" class="indicator-dot disconnected"></span>
-            <span id="ws-status-text">DISCONNECTED</span>
-          </span>
+          <h1 id="page-title">Cluster Operations</h1>
+          <div class="live-indicator">
+            <span class="indicator-dot disconnected" id="ws-status-dot"></span>
+            <span id="ws-status-text" class="font-semibold text-xs color-muted">CONNECTING...</span>
+          </div>
         </div>
-        
         <div class="header-right">
-          <button id="btn-theme-toggle" class="btn-secondary p-sm text-sm">
-            🌙 Dark
+          <button class="btn-secondary" id="btn-theme-toggle" style="padding: 8px 14px;">
+            ☀️ Theme
           </button>
-          <span class="text-md color-muted">Admin Mode</span>
-          <button id="btn-logout" class="btn-secondary p-sm text-sm">
-            <!-- Logout Icon SVG -->
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9" /></svg>
-            Log Out
+          <button class="btn-secondary" id="btn-logout" style="padding: 8px 14px; border-color: rgba(220, 53, 69, 0.2); color: var(--danger);">
+            Logout
           </button>
         </div>
-      </header>
+      </div>
 
-      <!-- Main Grid Layout -->
-      <div class="dashboard-grid">
+      <!-- Scrollable Content Pane -->
+      <main class="content-area">
         
-        <!-- Left Side: Nodes Panel -->
-        <div class="col-8">
-          <div class="glass-card h-full flex-col gap-xl">
+        <!-- SECTION 1: DASHBOARD VIEW -->
+        <div id="view-dashboard" class="view-section">
+          <!-- 4-Stat Cards Grid -->
+          <div class="dashboard-grid" style="padding: 0 0 24px 0;">
+            <div class="col-3 stat-card-custom" style="--accent-color: var(--primary); --circle-bg: var(--status-online-dim);">
+              <div>
+                <div class="stat-val" id="stat-cluster-status">-</div>
+                <div class="stat-lbl">Cluster Status</div>
+              </div>
+              <div class="stat-circle">
+                <span class="icon-slot" data-icon="Server"></span>
+              </div>
+            </div>
+            
+            <div class="col-3 stat-card-custom" style="--accent-color: var(--info); --circle-bg: rgba(1, 132, 141, 0.12);">
+              <div>
+                <div class="stat-val" id="stat-connected-nodes">0 / 0</div>
+                <div class="stat-lbl">Connected Nodes</div>
+              </div>
+              <div class="stat-circle">
+                <span class="icon-slot" data-icon="Nodes"></span>
+              </div>
+            </div>
+            
+            <div class="col-3 stat-card-custom" style="--accent-color: var(--warning); --circle-bg: var(--status-busy-dim);">
+              <div>
+                <div class="stat-val" id="stat-active-gpus">0</div>
+                <div class="stat-lbl">Total Cluster GPUs</div>
+              </div>
+              <div class="stat-circle">
+                <span class="icon-slot" data-icon="Gpu"></span>
+              </div>
+            </div>
+            
+            <div class="col-3 stat-card-custom" style="--accent-color: var(--danger); --circle-bg: var(--status-offline-dim);">
+              <div>
+                <div class="stat-val" id="stat-running-jobs">None</div>
+                <div class="stat-lbl">Active Training</div>
+              </div>
+              <div class="stat-circle">
+                <span class="icon-slot" data-icon="Activity"></span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Main Dashboard Panel Split -->
+          <div class="dashboard-grid" style="padding: 0; gap: 24px;">
+            <!-- Left Side: Nodes overview & Job status -->
+            <div class="col-7 flex-col gap-lg">
+              <!-- Active Node Cards mini-list -->
+              <div class="glass-card">
+                <div class="flex-row justify-between align-center mb-md">
+                  <h3 class="text-md font-semibold color-primary">Active Cluster Overview</h3>
+                  <button class="btn-secondary" id="btn-refresh-nodes" style="padding: 6px 12px; font-size: var(--text-xs);">
+                    Refresh Node Health
+                  </button>
+                </div>
+                <div id="dashboard-nodes-list" class="flex-col gap-xs">
+                  <!-- JS generated list -->
+                </div>
+              </div>
+
+              <!-- Active Training Job Progress Card -->
+              <div class="glass-card">
+                <h3 class="text-md font-semibold color-primary mb-md">Active Training Job</h3>
+                <div id="dashboard-active-job-container">
+                  <!-- JS generated depending on if job runs -->
+                </div>
+              </div>
+            </div>
+
+            <!-- Right Side: Real-time Telemetry charts -->
+            <div class="col-5 flex-col gap-lg">
+              <div class="glass-card">
+                <h3 class="text-md font-semibold color-primary mb-md">Telemetry: Average Utilization</h3>
+                <div id="chart-utilization" class="svg-chart-container">
+                  <!-- Custom SVG Chart generated by JS -->
+                </div>
+                <div class="flex-row justify-center gap-md mt-sm text-xs color-muted">
+                  <span class="flex-row align-center gap-xs">
+                    <span style="display:inline-block; width:10px; height:10px; background:var(--primary); border-radius:2px;"></span>
+                    GPU Utility %
+                  </span>
+                  <span class="flex-row align-center gap-xs">
+                    <span style="display:inline-block; width:10px; height:10px; background:var(--info); border-radius:2px;"></span>
+                    VRAM Utility %
+                  </span>
+                </div>
+              </div>
+
+              <div class="glass-card">
+                <h3 class="text-md font-semibold color-primary mb-md">Telemetry: GPU Temperature</h3>
+                <div id="chart-temperature" class="svg-chart-container">
+                  <!-- Custom SVG Chart generated by JS -->
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- SECTION 2: CLUSTER NODES VIEW -->
+        <div id="view-nodes" class="view-section hidden">
+          <div class="dashboard-grid" style="padding: 0; gap: 24px;">
+            <!-- Register Node Form -->
+            <div class="col-4">
+              <div class="glass-card flex-col gap-md">
+                <div>
+                  <h3 class="text-md font-semibold color-primary">Register Cluster Node</h3>
+                  <p class="text-xs color-muted mt-sm">Add a new DDP worker target. Requires pre-configured passwordless SSH access.</p>
+                </div>
+                
+                <form id="add-node-form-real" class="flex-col gap-md">
+                  <div class="form-group">
+                    <label class="form-label" for="node-ip-input">Node IP Address</label>
+                    <input class="glass-input" type="text" id="node-ip-input" placeholder="e.g. 192.168.1.15" required>
+                  </div>
+                  <div class="form-group">
+                    <label class="form-label" for="node-user-input">SSH Username</label>
+                    <input class="glass-input" type="text" id="node-user-input" value="ubuntu" required>
+                  </div>
+                  <div class="form-group">
+                    <label class="form-label" for="node-port-input">SSH Port</label>
+                    <input class="glass-input" type="number" id="node-port-input" value="22" required>
+                  </div>
+                  
+                  <div id="node-message-error" class="error-message hidden"></div>
+                  <button type="submit" class="btn-primary" id="btn-submit-node" style="height: 40px; margin-top: 10px;">
+                    Register Node
+                  </button>
+                </form>
+              </div>
+            </div>
+
+            <!-- Nodes Cards Grid -->
+            <div class="col-8">
+              <div class="glass-card flex-col gap-md" style="min-height: 480px;">
+                <h3 class="text-md font-semibold color-primary" id="nodes-grid-title">Cluster Nodes</h3>
+                <div class="nodes-grid" id="cluster-nodes-grid-container">
+                  <!-- JS generated node cards -->
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- SECTION 3: LAUNCH TRAINING VIEW -->
+        <div id="view-training" class="view-section hidden">
+          <div class="dashboard-grid" style="padding: 0; gap: 24px;">
+            <!-- Launch Config Form -->
+            <div class="col-5">
+              <div class="glass-card flex-col gap-md">
+                <h3 class="text-md font-semibold color-primary">Deploy & Start DDP Job</h3>
+                <p class="text-xs color-muted">Configures dynamic parallel processing (DDP) launch scripts and initiates DDP across active target nodes.</p>
+                
+                <form id="launch-training-form" class="flex-col gap-md">
+                  <div class="form-group">
+                    <label class="form-label" for="job-model">YOLO Model Version</label>
+                    <select class="glass-input" id="job-model">
+                      <option value="yolov8n.pt">yolov8n.pt (Nano - Recommended for CPUs/low GPUs)</option>
+                      <option value="yolov8s.pt">yolov8s.pt (Small)</option>
+                      <option value="yolov8m.pt">yolov8m.pt (Medium)</option>
+                      <option value="yolov8l.pt">yolov8l.pt (Large)</option>
+                      <option value="yolov8x.pt">yolov8x.pt (Extra Large)</option>
+                    </select>
+                  </div>
+                  
+                  <div class="form-group">
+                    <label class="form-label" for="job-dataset">Dataset Configuration File (YAML Path)</label>
+                    <input class="glass-input" type="text" id="job-dataset" value="dataset/coco128.yaml" required>
+                  </div>
+                  
+                  <div class="dashboard-grid" style="padding: 0; gap: 16px;">
+                    <div class="col-6 form-group">
+                      <label class="form-label" for="job-epochs">Training Epochs</label>
+                      <input class="glass-input" type="number" id="job-epochs" value="10" min="1" required>
+                    </div>
+                    <div class="col-6 form-group">
+                      <label class="form-label" for="job-batch">Batch Size (Per Node)</label>
+                      <input class="glass-input" type="number" id="job-batch" value="16" min="1" required>
+                    </div>
+                  </div>
+                  
+                  <div class="form-group">
+                    <label class="form-label" for="job-lr">Initial Learning Rate (lr0)</label>
+                    <input class="glass-input" type="number" id="job-lr" value="0.01" step="0.0001" min="0.0001" max="1" required>
+                  </div>
+                  
+                  <div id="job-launch-error" class="error-message hidden" style="margin-top: 6px;"></div>
+                  
+                  <button type="submit" class="btn-primary" id="btn-launch-ddp" style="height: 44px; margin-top: 10px;">
+                    Launch DDP Cluster Job
+                  </button>
+                </form>
+              </div>
+            </div>
+
+            <!-- Active / Completed Job overview -->
+            <div class="col-7 flex-col gap-lg">
+              <div class="glass-card flex-col gap-md" style="min-height: 480px;">
+                <h3 class="text-md font-semibold color-primary">Job Orchestration Details</h3>
+                <div id="training-job-details-pane" class="flex-col gap-md">
+                  <!-- Generated based on job state -->
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- SECTION 4: REAL-TIME MONITOR VIEW -->
+        <div id="view-monitor" class="view-section hidden">
+          <div class="dashboard-grid" style="padding: 0; gap: 24px;">
+            <div class="col-12">
+              <div class="glass-card">
+                <h3 class="text-md font-semibold color-primary mb-md">Real-time Cluster Metrics (Past 20 Heartbeats)</h3>
+                <div id="monitor-utilization-chart" class="svg-chart-container" style="height: 300px;">
+                  <!-- Large Custom SVG chart -->
+                </div>
+                <div class="flex-row justify-center gap-md mt-sm text-xs color-muted">
+                  <span class="flex-row align-center gap-xs">
+                    <span style="display:inline-block; width:10px; height:10px; background:var(--primary); border-radius:2px;"></span>
+                    GPU Utility %
+                  </span>
+                  <span class="flex-row align-center gap-xs">
+                    <span style="display:inline-block; width:10px; height:10px; background:var(--info); border-radius:2px;"></span>
+                    VRAM Utility %
+                  </span>
+                </div>
+              </div>
+            </div>
+            
+            <div class="col-12">
+              <div class="glass-card">
+                <h3 class="text-md font-semibold color-primary mb-md">Cluster Temperature Profile</h3>
+                <div id="monitor-temperature-chart" class="svg-chart-container" style="height: 250px;">
+                  <!-- Large Custom SVG temperature profile chart -->
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- SECTION 5: SYSTEM LOGS VIEW -->
+        <div id="view-logs" class="view-section hidden">
+          <div class="glass-card flex-col gap-md" style="height: calc(100vh - 160px);">
             <div class="flex-row justify-between align-center">
-              <h3 class="text-lg font-semibold" id="nodes-count-header">Cluster Nodes (0)</h3>
+              <div>
+                <h3 class="text-md font-semibold color-primary">Master Orchestrator Logs</h3>
+                <p class="text-xs color-muted mt-sm">Live stdout streams of orchestrator operations, DDP setup, and trainer checkpoints.</p>
+              </div>
+              <div class="flex-row align-center gap-md">
+                <label class="flex-row align-center gap-xs text-xs color-secondary" style="cursor: pointer;">
+                  <input type="checkbox" id="logs-autoscroll" checked> Auto-scroll Lock
+                </label>
+                <button class="btn-secondary" id="btn-clear-logs" style="padding: 6px 12px; font-size: var(--text-xs);">
+                  Clear Screen
+                </button>
+              </div>
             </div>
             
-            <div id="nodes-container" class="nodes-grid">
-              <!-- Node cards will be dynamically injected here -->
+            <div id="logs-console" class="terminal-screen flex-1" style="height: 100%; color: #e6edf3;">
+              <!-- Generated log lines -->
             </div>
           </div>
         </div>
 
-        <!-- Right Side Panel -->
-        <div class="col-4 flex-col gap-xl">
-          <!-- Add Node Form -->
-          <div class="glass-card flex-col gap-lg">
-            <h3 class="text-lg font-semibold">Add Cluster Node</h3>
-            <form id="add-node-form" class="flex-col gap-md">
-              <div class="form-group">
-                <label class="form-label">IP Address</label>
-                <input type="text" id="node-ip" class="glass-input" placeholder="e.g. 192.168.1.100" required>
-              </div>
-
-              <div class="flex-row gap-sm">
-                <div class="form-group flex-2">
-                  <label class="form-label">SSH User</label>
-                  <input type="text" id="node-user" class="glass-input" value="ubuntu" required>
-                </div>
-                <div class="form-group flex-1">
-                  <label class="form-label">SSH Port</label>
-                  <input type="text" id="node-port" class="glass-input" value="22" required>
-                </div>
-              </div>
-
-              <div id="node-message" class="text-sm color-primary hidden"></div>
-
-              <button type="submit" id="btn-add-node" class="btn-primary">
-                <!-- Plus Icon SVG -->
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" /></svg>
-                Add Node
-              </button>
-            </form>
+        <!-- SECTION 6: JOB HISTORY VIEW -->
+        <div id="view-history" class="view-section hidden">
+          <div class="glass-card flex-col gap-md" style="min-height: 480px;">
+            <div>
+              <h3 class="text-md font-semibold color-primary">Executed Training Jobs</h3>
+              <p class="text-xs color-muted mt-sm">History of YOLO cluster training tasks triggered from this orchestrator.</p>
+            </div>
+            <div style="overflow-x: auto; width: 100%;">
+              <table style="width: 100%; border-collapse: collapse; text-align: left; font-size: var(--text-sm);">
+                <thead>
+                  <tr style="border-bottom: 2px solid var(--border-strong); color: var(--text-muted);">
+                    <th style="padding: 12px 16px;">Job ID</th>
+                    <th style="padding: 12px 16px;">Model</th>
+                    <th style="padding: 12px 16px;">Dataset</th>
+                    <th style="padding: 12px 16px;">Epochs</th>
+                    <th style="padding: 12px 16px;">Batch Size</th>
+                    <th style="padding: 12px 16px;">Status</th>
+                  </tr>
+                </thead>
+                <tbody id="history-table-body">
+                  <!-- JS generated table rows -->
+                </tbody>
+              </table>
+            </div>
           </div>
+        </div>
 
-          <!-- Job Scheduler Form / Status -->
-          <div class="glass-card flex-col gap-lg">
-            <h3 class="text-lg font-semibold">Job Scheduler</h3>
+        <!-- SECTION 7: OTA UPDATES VIEW -->
+        <div id="view-ota" class="view-section hidden">
+          <div class="glass-card flex-col gap-md" style="max-width: 600px;">
+            <h3 class="text-md font-semibold color-primary">Over-The-Air (OTA) Node Sync</h3>
+            <p class="text-xs color-muted">Pushes the latest worker code and configurations (`worker/`) to all registered worker nodes concurrently via SFTP. Ensures the runtime codebase matches the master orchestrator.</p>
             
-            <!-- Dynamic scheduler section -->
-            <div id="scheduler-content">
-              <!-- Setup or active state details will be rendered here -->
-            </div>
-          </div>
-        </div>
-
-        <!-- Telemetry Charts -->
-        <div class="col-8">
-          <div class="glass-card flex-col gap-xl">
-            <h3 class="text-lg font-semibold">Distributed Training Metrics</h3>
-            <div class="charts-grid">
-              <div class="chart-card">
-                <h4 class="chart-title">Loss Curve (Box + Cls Loss)</h4>
-                <div id="loss-chart-container">
-                  <!-- Loss SVG Chart will be injected here -->
-                </div>
-              </div>
-              <div class="chart-card">
-                <h4 class="chart-title">Accuracy Metric (mAP @ 0.5)</h4>
-                <div id="map-chart-container">
-                  <!-- mAP SVG Chart will be injected here -->
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <!-- Master Orchestrator Terminal Logs -->
-        <div class="col-12">
-          <div class="glass-card flex-col gap-md">
-            <div class="flex-row justify-between align-center">
-              <div class="flex-row align-center gap-sm">
-                <!-- Terminal Icon SVG -->
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 17 10 11 4 5" /><line x1="12" y1="19" x2="20" y2="19" /></svg>
-                <h3 class="text-lg font-semibold">Master SSH Orchestrator Logs</h3>
-              </div>
-              <div class="text-xs color-muted">Active Session</div>
+            <div class="p-md" style="background: var(--bg-muted); border: 1px solid var(--border-default); border-radius: var(--radius-sm); font-size: var(--text-sm);">
+              <strong>Worker Target Location:</strong> ~/worker/<br>
+              <strong>Transferred Package:</strong> Code packages and configs.
             </div>
             
-            <div id="terminal-screen" class="terminal-screen">
-              <!-- Logs will scroll here -->
+            <div id="ota-status-error" class="error-message hidden"></div>
+            <div id="ota-status-success" class="font-semibold text-xs color-success hidden" style="text-align: center;"></div>
+            
+            <button class="btn-primary" id="btn-trigger-ota" style="height: 44px; margin-top: 10px;">
+              Sync Worker Code Package
+            </button>
+          </div>
+        </div>
+
+        <!-- SECTION 8: SYSTEM SETTINGS VIEW -->
+        <div id="view-settings" class="view-section hidden">
+          <div class="glass-card flex-col gap-md" style="max-width: 600px;">
+            <h3 class="text-md font-semibold color-primary">System Settings</h3>
+            <p class="text-xs color-muted">Operational configurations for the Distributed YOLO Orchestrator.</p>
+            
+            <div class="flex-col gap-md mt-sm">
+              <div class="flex-row justify-between align-center py-sm" style="border-bottom: 1px solid var(--border-subtle);">
+                <div>
+                  <span class="font-semibold text-sm color-primary">FastAPI Backend Location</span>
+                  <p class="text-xs color-muted mt-xs">Endpoint where the dashboard connects.</p>
+                </div>
+                <span class="mono-text color-secondary" id="settings-backend-host">-</span>
+              </div>
+              
+              <div class="flex-row justify-between align-center py-sm" style="border-bottom: 1px solid var(--border-subtle);">
+                <div>
+                  <span class="font-semibold text-sm color-primary">Heartbeat Monitor Timeout</span>
+                  <p class="text-xs color-muted mt-xs">Duration before an inactive node is marked offline.</p>
+                </div>
+                <span class="mono-text color-secondary">15 Seconds</span>
+              </div>
+              
+              <div class="flex-row justify-between align-center py-sm">
+                <div>
+                  <span class="font-semibold text-sm color-primary">Database Backend</span>
+                  <p class="text-xs color-muted mt-xs">Persistent metadata and metrics database.</p>
+                </div>
+                <span class="mono-text color-secondary">SQLite3 (cluster.db)</span>
+              </div>
             </div>
           </div>
         </div>
 
+      </main>
+    </div>
+  </div>
+
+  <!-- MODAL: Edit Node (or confirm remove) -->
+  <div class="modal-overlay" id="confirm-delete-modal">
+    <div class="modal-card">
+      <div class="modal-header">
+        <span class="modal-title" id="delete-modal-title">Remove Node from Cluster</span>
+        <button class="btn-secondary" style="padding: 6px; border:none; background:none; cursor:pointer;" id="btn-close-delete-modal">
+          <span class="icon-slot" data-icon="X"></span>
+        </button>
+      </div>
+      <div class="modal-body">
+        <p class="text-sm color-secondary" id="delete-modal-body-text">Are you sure you want to remove node from the cluster list?</p>
+      </div>
+      <div class="modal-footer">
+        <button class="btn-secondary" id="btn-cancel-delete">Cancel</button>
+        <button class="btn-danger" id="btn-confirm-delete">Remove Node</button>
       </div>
     </div>
   </div>
+
+  <!-- Local Script File -->
+  <script src="script.js"></script>
 
 </body>
 </html>

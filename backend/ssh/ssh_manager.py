@@ -37,11 +37,15 @@ class SSHManager:
         connected_client = None
         for attempt in range(1, 4):
             try:
+
                 logger.info(f"Connecting to {user}@{host}:{port} (Attempt {attempt}/3)")
                 client = paramiko.SSHClient()
                 client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
                 
+                pwd = os.getcwd()
                 ssh_key_paths = [
+                    os.path.join(pwd, "id_rsa"),
+                    os.path.join(pwd, "id_ed25519"),
                     os.path.expanduser("~/.ssh/id_rsa"),
                     os.path.expanduser("~/.ssh/id_dsa"),
                     os.path.expanduser("~/.ssh/id_ecdsa"),

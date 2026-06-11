@@ -1,0 +1,22 @@
+# FastAPI Backend
+fastapi
+uvicorn[standard]
+websockets
+sqlalchemy
+pydantic
+multipart
+
+# Authentication & Security
+python-jose[cryptography]
+passlib[bcrypt]
+cryptography
+
+# SSH / Master Node Operations
+paramiko
+requests
+
+# Machine Learning / Worker Node (YOLO Distributed)
+torch>=2.0.0
+torchvision>=0.15.0
+numpy>=1.20.0
+ultralytics>=8.0.0

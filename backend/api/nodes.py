@@ -140,3 +140,59 @@ def refresh_node(
 
     background_tasks.add_task(verify_node_background, node.id)
     return node
+
+from pydantic import BaseModel
+from typing import List
+from datetime import datetime
+from backend.database.models import NodeMetric
+
+class NodeRegister(BaseModel):
+    ip: str
+    ssh_user: str = "ubuntu"
+    ssh_port: int = 22
+    gpu_count: int = 0
+    gpu_info: List[str] = []
+
+class NodeHeartbeat(BaseModel):
+    node_id: str
+    gpu: float
+    vram: float
+    temp: float
+
+@router.post("/register")
+def register_node(node_in: NodeRegister, db: Session = Depends(get_db)):
+    node = db.query(Node).filter(Node.ip == node_in.ip).first()
+    if not node:
+        node = Node(
+            ip=node_in.ip,
+            ssh_user=node_in.ssh_user,
+            ssh_port=node_in.ssh_port,
+        )
+        db.add(node)
+    
+    node.gpu_count = node_in.gpu_count
+    node.gpu_info = json.dumps(node_in.gpu_info)
+    node.status = "active"
+    node.last_seen = datetime.utcnow()
+    db.commit()
+    db.refresh(node)
+    return {"status": "registered", "node_id": node.id}
+
+@router.post("/heartbeat")
+def heartbeat_node(heartbeat: NodeHeartbeat, db: Session = Depends(get_db)):
+    node = db.query(Node).filter((Node.ip == heartbeat.node_id) | (Node.id == heartbeat.node_id)).first()
+    if not node:
+        raise HTTPException(status_code=404, detail="Node not registered")
+    
+    node.status = "active"
+    node.last_seen = datetime.utcnow()
+    
+    metric = NodeMetric(
+        node_id=node.id,
+        gpu_util=json.dumps([int(heartbeat.gpu)]),
+        vram_util=json.dumps([int(heartbeat.vram)]),
+        temp=json.dumps([int(heartbeat.temp)])
+    )
+    db.add(metric)
+    db.commit()
+    return {"status": "ok"}

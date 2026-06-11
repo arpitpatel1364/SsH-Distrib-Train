@@ -53,12 +53,14 @@ class JobCreate(JobBase):
     pass
 
 class JobResponse(JobBase):
-    id: int
+    id: str
     status: str
     created_at: datetime
     started_at: Optional[datetime] = None
     finished_at: Optional[datetime] = None
     current_epoch: int
+    assigned_node: Optional[str] = None
+    command: Optional[str] = None
     class Config:
         from_attributes = True
 
@@ -75,13 +77,16 @@ class NodeMetricResponse(BaseModel):
 
 class TrainingMetricResponse(BaseModel):
     id: int
-    job_id: int
-    epoch: int
+    job_id: str
+    epoch: Optional[int] = None
     box_loss: float
     cls_loss: float
     dfl_loss: float
     map50: float
     map50_95: float
+    gpu_util: Optional[float] = None
+    vram_util: Optional[float] = None
+    temp: Optional[float] = None
     timestamp: datetime
     class Config:
         from_attributes = True

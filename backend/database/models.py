@@ -34,10 +34,10 @@ class NodeMetric(Base):
 
 class Job(Base):
     __tablename__ = "jobs"
-    id = Column(Integer, primary_key=True, index=True)
-    status = Column(String, default="pending")    # pending, running, completed, failed, stopped
+    id = Column(String, primary_key=True, index=True)
+    status = Column(String, default="pending")    # pending, running, completed, failed, stopped, degraded, retry
     model_name = Column(String, default="yolov8n.pt")
-    dataset_path = Column(String, nullable=False)
+    dataset_path = Column(String, nullable=True)
     epochs = Column(Integer, default=10)
     batch_size = Column(Integer, default=16)
     learning_rate = Column(Float, default=0.01)
@@ -45,17 +45,22 @@ class Job(Base):
     started_at = Column(DateTime, nullable=True)
     finished_at = Column(DateTime, nullable=True)
     current_epoch = Column(Integer, default=0)
+    assigned_node = Column(String, nullable=True)  # IP of the node assigned to run this sub-job
+    command = Column(String, nullable=True)        # The specific command for the worker
     training_metrics = relationship("TrainingMetric", back_populates="job", cascade="all, delete-orphan")
 
 class TrainingMetric(Base):
     __tablename__ = "training_metrics"
     id = Column(Integer, primary_key=True, index=True)
-    job_id = Column(Integer, ForeignKey("jobs.id"), nullable=False)
-    epoch = Column(Integer, nullable=False)
+    job_id = Column(String, ForeignKey("jobs.id"), nullable=False)
+    epoch = Column(Integer, nullable=True)
     box_loss = Column(Float, default=0.0)
     cls_loss = Column(Float, default=0.0)
     dfl_loss = Column(Float, default=0.0)
     map50 = Column(Float, default=0.0)
     map50_95 = Column(Float, default=0.0)
+    gpu_util = Column(Float, nullable=True)
+    vram_util = Column(Float, nullable=True)
+    temp = Column(Float, nullable=True)
     timestamp = Column(DateTime, default=datetime.utcnow)
     job = relationship("Job", back_populates="training_metrics")

@@ -42,12 +42,39 @@ manager = ConnectionManager()
 
 # Background broadcast loop
 async def broadcast_loop():
+    from datetime import datetime
+    from backend.training.trainer import check_and_recover_jobs
+    
     while True:
         if manager.active_connections:
             db = SessionLocal()
             try:
-                # 1. Fetch Node Statuses & GPU metrics
+                # Run auto-recovery check first
+                check_and_recover_jobs(db)
+                
+                # Check for heartbeat timeouts (nodes offline)
+                now = datetime.utcnow()
                 nodes = db.query(Node).all()
+                for node in nodes:
+                    if node.status in ["active", "training"] and (now - node.last_seen).total_seconds() > 15:
+                        node.status = "offline"
+                        db.commit()
+                        
+                        # Stop sub-jobs for this node
+                        running_sub_jobs = db.query(Job).filter(Job.status == "running", Job.assigned_node == node.ip).all()
+                        for sub_job in running_sub_jobs:
+                            sub_job.status = "failed"
+                            master_id = sub_job.id.rsplit("_", 1)[0]
+                            master_job = db.query(Job).filter(Job.id == master_id).first()
+                            if master_job and master_job.status == "running":
+                                master_job.status = "retry"
+                                # Also stop other running sub-jobs of this master job
+                                other_sub_jobs = db.query(Job).filter(Job.status == "running", Job.id.like(f"{master_id}_%")).all()
+                                for oj in other_sub_jobs:
+                                    oj.status = "stopped"
+                        db.commit()
+
+                # 1. Fetch Node Statuses & GPU metrics
                 nodes_data = []
                 for node in nodes:
                     # Get latest metric
@@ -77,8 +104,8 @@ async def broadcast_loop():
                         "last_seen": node.last_seen.isoformat()
                     })
 
-                # 2. Fetch Active Job Details
-                active_job = db.query(Job).filter(Job.status == "running").first()
+                # 2. Fetch Active Job Details (only main master jobs, i.e., assigned_node is None)
+                active_job = db.query(Job).filter(Job.status == "running", Job.assigned_node == None).first()
                 job_data = None
                 if active_job:
                     # Fetch training metrics for active job
@@ -131,8 +158,6 @@ async def websocket_endpoint(websocket: WebSocket):
     await manager.connect(websocket)
     try:
         while True:
-            # Keep the websocket open and listen for ping/pong or control messages
             data = await websocket.receive_text()
-            # We can parse text inputs if the client wants to send interactive commands
     except WebSocketDisconnect:
         manager.disconnect(websocket)

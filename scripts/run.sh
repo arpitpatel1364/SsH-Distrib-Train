@@ -1,6 +1,9 @@
 #!/bin/bash
 # Master execution runner script
 
+# Change to the project root directory
+cd "$(dirname "$0")/.."
+
 echo "=== Activating Virtual Environment ==="
 source venv/bin/activate
 
