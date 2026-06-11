@@ -109,15 +109,35 @@ def main():
                 job_id = job["job_id"]
                 master_job_id = job["master_job_id"]
                 cmd = job["command"]
+                if not os.path.exists("worker/trainer.py") and os.path.exists("trainer.py"):
+                    cmd = cmd.replace("worker/trainer.py", "trainer.py")
                 
                 print(f"\n[!] Pull-Queue: Received Job #{job_id}. Executing command: {cmd}")
                 
+                # Download checkpoint if available on the master
+                try:
+                    os.makedirs("worker", exist_ok=True)
+                    chk_url = f"{master_url}/train/jobs/{master_job_id}/checkpoint"
+                    print(f"[*] Checking for checkpoint on master: {chk_url}")
+                    chk_res = requests.get(chk_url, timeout=10)
+                    if chk_res.status_code == 200:
+                        local_chk_path = f"worker/checkpoint_job_{master_job_id}.pt"
+                        with open(local_chk_path, "wb") as f:
+                            f.write(chk_res.content)
+                        print(f"[+] Downloaded checkpoint from master to {local_chk_path}")
+                except Exception as e:
+                    print(f"[-] Failed to download checkpoint: {e}")
+
                 # Get current system path and prepend python's bin directory to locate torchrun
                 env = os.environ.copy()
                 bin_dir = os.path.dirname(sys.executable)
                 env["PATH"] = bin_dir + os.pathsep + env.get("PATH", "")
                 
                 # Execute training command
+                import signal
+                import threading
+                import time
+                
                 process = subprocess.Popen(
                     cmd,
                     shell=True,
@@ -126,8 +146,37 @@ def main():
                     text=True,
                     bufsize=1,
                     cwd=".", # Run in workspace directory
-                    env=env
+                    env=env,
+                    preexec_fn=os.setsid
                 )
+                
+                # Flag to coordinate thread termination
+                stop_watcher = False
+                
+                def job_status_watcher():
+                    while not stop_watcher:
+                        try:
+                            # Poll status every 3 seconds
+                            for _ in range(6):
+                                time.sleep(0.5)
+                                if stop_watcher:
+                                    return
+                            
+                            res = requests.get(f"{master_url}/train/jobs/{master_job_id}", timeout=2)
+                            if res.status_code == 200:
+                                status = res.json().get("status")
+                                if status in ["failed", "retry", "stopped"]:
+                                    print(f"\n[!] Job status changed to {status}. Terminating local training process group...")
+                                    try:
+                                        os.killpg(os.getpgid(process.pid), signal.SIGTERM)
+                                    except Exception:
+                                        process.terminate()
+                                    break
+                        except Exception:
+                            pass
+                
+                watcher_thread = threading.Thread(target=job_status_watcher, daemon=True)
+                watcher_thread.start()
                 
                 # Read stdout line-by-line in real-time and POST to master
                 for line in process.stdout:
@@ -143,6 +192,8 @@ def main():
                         pass
                 
                 process.wait()
+                stop_watcher = True
+                watcher_thread.join(timeout=1.0)
                 exit_code = process.returncode
                 
                 if exit_code == 0:

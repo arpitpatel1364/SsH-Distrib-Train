@@ -20,12 +20,5 @@ def get_db():
         db.close()
 
 def init_db():
-    import os
-    if os.path.exists("cluster.db"):
-        try:
-            os.remove("cluster.db")
-            print("Existing cluster.db deleted to apply new schema.")
-        except Exception as e:
-            print(f"Could not delete cluster.db: {e}")
     import backend.database.models  # Import models to register them
     Base.metadata.create_all(bind=engine)

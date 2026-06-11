@@ -190,6 +190,24 @@ def main():
             }, checkpoint_path)
             print(f"[Rank 0] Saved training checkpoint to {checkpoint_path}")
 
+            # Upload checkpoint to Master
+            if args.orchestrator_url:
+                try:
+                    upload_chk_url = f"{args.orchestrator_url}/train/jobs/{args.job_id}/checkpoint"
+                    print(f"[Rank 0] Uploading checkpoint to master: {upload_chk_url}")
+                    with open(checkpoint_path, "rb") as f:
+                        response = requests.post(
+                            upload_chk_url,
+                            files={"file": f},
+                            timeout=30
+                        )
+                    if response.status_code == 200:
+                        print(f"[Rank 0] Checkpoint successfully uploaded to master.")
+                    else:
+                        print(f"[Rank 0] Checkpoint upload failed: {response.text}")
+                except Exception as e:
+                    print(f"[Rank 0] Checkpoint upload failed with error: {e}")
+
             if args.orchestrator_url:
                 try:
                     metrics_url = f"{args.orchestrator_url}/train/metrics"

@@ -41,40 +41,51 @@ class ConnectionManager:
 manager = ConnectionManager()
 
 # Background broadcast loop
-async def broadcast_loop():
+async def orchestrator_loop():
     from datetime import datetime
     from backend.training.trainer import check_and_recover_jobs
     
     while True:
+        db = SessionLocal()
+        try:
+            # Run auto-recovery check first
+            check_and_recover_jobs(db)
+            
+            # Check for heartbeat timeouts (nodes offline)
+            now = datetime.utcnow()
+            nodes = db.query(Node).all()
+            for node in nodes:
+                if node.status in ["active", "training"] and (now - node.last_seen).total_seconds() > 15:
+                    node.status = "offline"
+                    db.commit()
+                    
+                    # Stop sub-jobs for this node
+                    running_sub_jobs = db.query(Job).filter(Job.status == "running", Job.assigned_node == node.ip).all()
+                    for sub_job in running_sub_jobs:
+                        sub_job.status = "failed"
+                        master_id = sub_job.id.rsplit("_", 1)[0]
+                        master_job = db.query(Job).filter(Job.id == master_id).first()
+                        if master_job and master_job.status == "running":
+                            master_job.status = "retry"
+                            # Also stop other running sub-jobs of this master job
+                            other_sub_jobs = db.query(Job).filter(Job.status == "running", Job.id.like(f"{master_id}_%")).all()
+                            for oj in other_sub_jobs:
+                                oj.status = "stopped"
+                    db.commit()
+        except Exception as e:
+            logger.error(f"Error in orchestrator loop: {e}")
+        finally:
+            db.close()
+        
+        await asyncio.sleep(5.0)  # Check health and recover jobs every 5 seconds
+
+async def broadcast_loop():
+    while True:
         if manager.active_connections:
             db = SessionLocal()
             try:
-                # Run auto-recovery check first
-                check_and_recover_jobs(db)
-                
-                # Check for heartbeat timeouts (nodes offline)
-                now = datetime.utcnow()
-                nodes = db.query(Node).all()
-                for node in nodes:
-                    if node.status in ["active", "training"] and (now - node.last_seen).total_seconds() > 15:
-                        node.status = "offline"
-                        db.commit()
-                        
-                        # Stop sub-jobs for this node
-                        running_sub_jobs = db.query(Job).filter(Job.status == "running", Job.assigned_node == node.ip).all()
-                        for sub_job in running_sub_jobs:
-                            sub_job.status = "failed"
-                            master_id = sub_job.id.rsplit("_", 1)[0]
-                            master_job = db.query(Job).filter(Job.id == master_id).first()
-                            if master_job and master_job.status == "running":
-                                master_job.status = "retry"
-                                # Also stop other running sub-jobs of this master job
-                                other_sub_jobs = db.query(Job).filter(Job.status == "running", Job.id.like(f"{master_id}_%")).all()
-                                for oj in other_sub_jobs:
-                                    oj.status = "stopped"
-                        db.commit()
-
                 # 1. Fetch Node Statuses & GPU metrics
+                nodes = db.query(Node).all()
                 nodes_data = []
                 for node in nodes:
                     # Get latest metric
@@ -149,8 +160,9 @@ async def broadcast_loop():
         
         await asyncio.sleep(1.5)  # Stream data every 1.5 seconds
 
-# Start the broadcast loop on application startup
+# Start the background tasks on application startup
 def start_broadcast_task():
+    asyncio.create_task(orchestrator_loop())
     asyncio.create_task(broadcast_loop())
 
 @router.websocket("/stream")

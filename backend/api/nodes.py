@@ -184,7 +184,8 @@ def heartbeat_node(heartbeat: NodeHeartbeat, db: Session = Depends(get_db)):
     if not node:
         raise HTTPException(status_code=404, detail="Node not registered")
     
-    node.status = "active"
+    if node.status != "training":
+        node.status = "active"
     node.last_seen = datetime.utcnow()
     
     metric = NodeMetric(

@@ -1147,10 +1147,14 @@ async function handleLaunchTraining(e) {
 
 // F. Terminate DDP Run
 window.stopDDPJob = async function() {
+  if (!activeJob) {
+    alert("No active training job to stop.");
+    return;
+  }
   if (!confirm("Are you sure you want to stop the cluster training job? All node runtimes will be terminated immediately.")) return;
   
   try {
-    await fetch(`${API_BASE}/training/stop`, {
+    await fetch(`${API_BASE}/train/jobs/${activeJob.id}/stop`, {
       method: "POST",
       headers: { "Authorization": `Bearer ${token}` }
     });
@@ -1169,7 +1173,7 @@ async function fetchJobHistory() {
   `;
   
   try {
-    const res = await fetch(`${API_BASE}/training/history`, {
+    const res = await fetch(`${API_BASE}/train/jobs`, {
       headers: { "Authorization": `Bearer ${token}` }
     });
     if (res.ok) {
@@ -1179,7 +1183,7 @@ async function fetchJobHistory() {
       if (historyList.length === 0) {
         elements.historyTableBody.innerHTML = `
           <tr>
-            <td colspan="6" class="text-center p-md color-muted">No historical training records found.</td>
+            <td colspan="7" class="text-center p-md color-muted">No historical training records found.</td>
           </tr>
         `;
         return;
@@ -1193,6 +1197,11 @@ async function fetchJobHistory() {
           statusBadge = `<span class="badge badge-failed">${job.status}</span>`;
         }
         
+        let downloadAction = `<span class="color-muted">-</span>`;
+        if (job.status === "completed") {
+          downloadAction = `<a href="${API_BASE}/train/download/${job.id}" class="btn-primary" style="padding: 4px 8px; text-decoration: none; border-radius: 4px; font-size: var(--text-xs);" download>Download</a>`;
+        }
+        
         const tr = document.createElement("tr");
         tr.style.borderBottom = "1px solid var(--border-default)";
         tr.innerHTML = `
@@ -1202,6 +1211,7 @@ async function fetchJobHistory() {
           <td style="padding: 12px 16px;">${job.epochs}</td>
           <td style="padding: 12px 16px;">${job.batch_size}</td>
           <td style="padding: 12px 16px;">${statusBadge}</td>
+          <td style="padding: 12px 16px;">${downloadAction}</td>
         `;
         elements.historyTableBody.appendChild(tr);
       });
@@ -1209,7 +1219,7 @@ async function fetchJobHistory() {
   } catch (err) {
     elements.historyTableBody.innerHTML = `
       <tr>
-        <td colspan="6" class="text-center p-md color-danger">Failed to load run history.</td>
+        <td colspan="7" class="text-center p-md color-danger">Failed to load run history.</td>
       </tr>
     `;
   }

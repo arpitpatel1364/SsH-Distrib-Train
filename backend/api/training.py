@@ -67,7 +67,7 @@ def start_training_job(
                 "rsync", "-az", "-e",
                 f"ssh -p {node.ssh_port} -o StrictHostKeyChecking=no",
                 "dataset/",
-                f"{node.ssh_user}@{node.ip}:dataset/"
+                f"{node.ssh_user}@{node.ip}:worker/dataset/"
             ]
             subprocess.run(rsync_cmd, timeout=10, capture_output=True)
         except Exception as e:
@@ -322,7 +322,7 @@ def upload_model(
         shutil.copyfileobj(file.file, buffer)
         
     # Mark master job and worker jobs as completed
-    master_id = job_id.rsplit("_", 1)[0]
+    master_id = job_id
     master_job = db.query(Job).filter(Job.id == master_id).first()
     if master_job:
         master_job.status = "completed"
@@ -349,6 +349,21 @@ def download_model(job_id: str, token: Optional[str] = None):
     if not os.path.exists(file_path):
         raise HTTPException(status_code=404, detail="Model file not found. Training might be in progress or failed.")
     return FileResponse(file_path, media_type="application/octet-stream", filename=f"model_{job_id}.pt")
+
+@router.post("/jobs/{job_id}/checkpoint")
+def upload_checkpoint(job_id: str, file: UploadFile = File(...)):
+    os.makedirs(f"outputs/{job_id}", exist_ok=True)
+    checkpoint_path = f"outputs/{job_id}/checkpoint.pt"
+    with open(checkpoint_path, "wb") as buffer:
+        shutil.copyfileobj(file.file, buffer)
+    return {"status": "ok", "path": checkpoint_path}
+
+@router.get("/jobs/{job_id}/checkpoint")
+def download_checkpoint(job_id: str):
+    checkpoint_path = f"outputs/{job_id}/checkpoint.pt"
+    if not os.path.exists(checkpoint_path):
+        raise HTTPException(status_code=404, detail="Checkpoint file not found")
+    return FileResponse(checkpoint_path, media_type="application/octet-stream", filename=f"checkpoint_{job_id}.pt")
 
 
 
