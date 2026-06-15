@@ -1,16 +1,12 @@
-import torch
-import torch.distributed as dist
-import torch.nn as nn
-import torch.optim as optim
-from torch.nn.parallel import DistributedDataParallel as DDP
-from torch.utils.data import DataLoader, Dataset
-import argparse
-import time
-import json
 import os
-import random
+import sys
+import json
+import argparse
 import subprocess
+import traceback
 import requests
+import torch
+
 
 def get_gpu_metrics():
     try:
@@ -23,15 +19,6 @@ def get_gpu_metrics():
     except Exception:
         return 0.0, 0.0, 0.0
 
-class MockYOLODataset(Dataset):
-    def __init__(self, size=200):
-        self.size = size
-    def __len__(self):
-        return self.size
-    def __getitem__(self, idx):
-        x = torch.randn(3, 64, 64)
-        y = torch.randint(0, 10, (5,))
-        return x, y
 
 def main():
     parser = argparse.ArgumentParser()
@@ -45,211 +32,200 @@ def main():
     parser.add_argument("--model", type=str, default="yolov8n.pt")
     parser.add_argument("--dataset", type=str, default="coco128.yaml")
     parser.add_argument("--job_id", type=str, default="1")
-    parser.add_argument("--backend", type=str, default="gloo")
+    parser.add_argument("--backend", type=str, default="nccl")
     parser.add_argument("--orchestrator_url", type=str, default="")
     args = parser.parse_args()
 
-    backend = args.backend
-
-    # Prioritize environment variables set by torchrun
+    # ── Environment ──────────────────────────────────────────────────────────
+    # When launched via `torchrun`, these env vars are already set correctly.
+    # We read them but do NOT override — Ultralytics' internal DDP bootstrap
+    # needs to own them.
     master_addr = os.environ.get("MASTER_ADDR", args.master_addr)
     master_port = os.environ.get("MASTER_PORT", args.master_port)
-    world_size_str = os.environ.get("WORLD_SIZE", str(args.world_size))
-    rank_str = os.environ.get("RANK", str(args.rank))
-    local_rank_str = os.environ.get("LOCAL_RANK", "0")
+    world_size  = int(os.environ.get("WORLD_SIZE", str(args.world_size)))
+    rank        = int(os.environ.get("RANK", str(args.rank)))
+    local_rank  = int(os.environ.get("LOCAL_RANK", "0"))
 
-    os.environ["MASTER_ADDR"] = master_addr
-    os.environ["MASTER_PORT"] = master_port
-    os.environ["WORLD_SIZE"] = world_size_str
-    os.environ["RANK"] = rank_str
+    # Only set these if not already present (don't stomp on torchrun's values)
+    os.environ.setdefault("MASTER_ADDR", master_addr)
+    os.environ.setdefault("MASTER_PORT", master_port)
+    os.environ.setdefault("NCCL_SOCKET_IFNAME", "en,eth,em,bond,wlan,wlx")
 
-    env_rank = int(rank_str)
-    env_world_size = int(world_size_str)
-    env_local_rank = int(local_rank_str)
+    # ── Dataset path validation ───────────────────────────────────────────────
+    if not os.path.exists(args.dataset):
+        print(
+            f"[Rank {rank}] WARNING: Dataset file not found at '{args.dataset}'! "
+            f"Make sure this path is accessible on every worker node.",
+            flush=True
+        )
 
+    # ── Device ───────────────────────────────────────────────────────────────
     use_cuda = torch.cuda.is_available()
-
-    print(f"[Rank {env_rank}] Initializing process group using {backend} backend...")
-    dist.init_process_group(backend=backend)
-    print(f"[Rank {env_rank}] Process group initialized.")
-
     if use_cuda:
-        device_id = env_local_rank % torch.cuda.device_count()
-        torch.cuda.set_device(device_id)
-        device = torch.device(f"cuda:{device_id}")
-        print(f"[Rank {env_rank}] Running on GPU {device_id} (Local Rank: {env_local_rank})")
+        device_id = local_rank % torch.cuda.device_count()
+        device_str = str(device_id)          # Ultralytics wants "0", "1", …
     else:
-        device = torch.device("cpu")
-        print(f"[Rank {env_rank}] Running on CPU")
+        device_str = "cpu"
 
-    class DummyYOLOModel(nn.Module):
-        def __init__(self):
-            super().__init__()
-            self.backbone = nn.Sequential(
-                nn.Conv2d(3, 16, kernel_size=3, padding=1),
-                nn.ReLU(),
-                nn.AdaptiveAvgPool2d((4, 4)),
-                nn.Flatten()
-            )
-            self.box_head = nn.Linear(16 * 4 * 4, 4)
-            self.cls_head = nn.Linear(16 * 4 * 4, 10)
+    print(f"[Rank {rank}] Starting Ultralytics YOLOv8 training on device={device_str}", flush=True)
 
-        def forward(self, x):
-            feats = self.backbone(x)
-            box = self.box_head(feats)
-            cls_out = self.cls_head(feats)
-            return box, cls_out
+    # ── Init process group ───────────────────────────────────────────────────
+    # Ultralytics checks RANK != -1 (not dist.is_initialized()) to decide
+    # whether to use DistributedSampler. torchrun always sets RANK, even for
+    # world_size=1. So we MUST init the process group whenever torchrun launched
+    # this script, regardless of world_size.
+    import torch.distributed as dist
+    import datetime
+    if not dist.is_initialized():
+        # Use gloo for single-process (world_size=1) — no network interface needed.
+        # Use nccl for multi-process GPU training (world_size>1).
+        backend = "nccl" if (use_cuda and world_size > 1) else "gloo"
+        dist.init_process_group(
+            backend=backend,
+            init_method="env://",
+            world_size=world_size,
+            rank=rank,
+            timeout=datetime.timedelta(seconds=120)
+        )
+    print(f"[Rank {rank}] Process group initialized (backend={os.environ.get('TORCH_DISTRIBUTED_BACKEND', backend)}, world_size={world_size})", flush=True)
 
-    model = DummyYOLOModel().to(device)
-    optimizer = optim.SGD(model.parameters(), lr=args.lr)
 
-    # Checkpoint Resume (Load BEFORE wrapping in DDP)
-    checkpoint_path = f"worker/checkpoint_job_{args.job_id}.pt"
-    start_epoch = 0
-    if os.path.exists(checkpoint_path):
-        print(f"[Rank {env_rank}] Resuming from checkpoint: {checkpoint_path}")
-        try:
-            checkpoint = torch.load(checkpoint_path, map_location=device)
-            model.load_state_dict(checkpoint["model_state_dict"])
-            optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
-            start_epoch = checkpoint["epoch"] + 1
-            print(f"[Rank {env_rank}] Checkpoint loaded. Starting at epoch {start_epoch}")
-        except Exception as e:
-            print(f"[Rank {env_rank}] Failed to load checkpoint: {e}")
+    # ── AutoBatch ─────────────────────────────────────────────────────────────
+    batch = args.batch_size
+    if batch == -1 and world_size > 1:
+        print(f"[Rank {rank}] WARNING: AutoBatch (batch=-1) is NOT supported in multi-node DDP training. Defaulting to batch=16.", flush=True)
+        batch = 16
 
-    # Wrap model in DDP
-    if use_cuda:
-        model = DDP(model, device_ids=[device_id])
-    else:
-        model = DDP(model)
+    # ── Checkpoint resume dir ─────────────────────────────────────────────────
+    checkpoint_dir = os.path.join("worker", f"job_{args.job_id}")
+    os.makedirs(checkpoint_dir, exist_ok=True)
 
-    dataset = MockYOLODataset()
-    sampler = torch.utils.data.distributed.DistributedSampler(
-        dataset, 
-        num_replicas=env_world_size, 
-        rank=env_rank,
-        shuffle=True
-    )
-    dataloader = DataLoader(dataset, batch_size=args.batch_size, sampler=sampler)
+    # ── Build YOLO model ──────────────────────────────────────────────────────
+    from ultralytics import YOLO
 
-    for epoch in range(start_epoch, args.epochs):
-        sampler.set_epoch(epoch)
-        model.train()
-        epoch_loss = 0.0
-        
-        for i, (imgs, targets) in enumerate(dataloader):
-            imgs = imgs.to(device)
-            optimizer.zero_grad()
-            box_out, cls_out = model(imgs)
-            loss_box = nn.MSELoss()(box_out, torch.zeros_like(box_out))
-            loss_cls = nn.CrossEntropyLoss()(cls_out, torch.randint(0, 10, (imgs.size(0),)).to(device))
-            loss = loss_box + loss_cls
-            loss.backward()
-            optimizer.step()
-            epoch_loss += loss.item()
-            time.sleep(0.05)
+    model = YOLO(args.model)
 
-        epoch_loss_tensor = torch.tensor(epoch_loss).to(device)
-        dist.all_reduce(epoch_loss_tensor, op=dist.ReduceOp.SUM)
-        avg_loss = epoch_loss_tensor.item() / (env_world_size * len(dataloader))
+    # ── Callbacks ─────────────────────────────────────────────────────────────
+    orchestrator_url = args.orchestrator_url
+    job_id           = args.job_id
 
-        box_loss_val = avg_loss * 0.4 + random.uniform(-0.02, 0.02)
-        cls_loss_val = avg_loss * 0.45 + random.uniform(-0.02, 0.02)
-        dfl_loss_val = avg_loss * 0.15 + random.uniform(-0.01, 0.01)
-        
-        progress = (epoch + 1) / args.epochs
-        map50 = 0.3 + 0.62 * progress + random.uniform(-0.02, 0.02)
-        map50_95 = 0.15 + 0.48 * progress + random.uniform(-0.01, 0.01)
-        map50 = min(max(map50, 0.0), 1.0)
-        map50_95 = min(max(map50_95, 0.0), 1.0)
+    def on_train_epoch_end(trainer):
+        """Fires after every training epoch on every rank.
+        We only POST to the orchestrator from Rank 0 to avoid duplicates."""
+
+        current_rank = int(os.environ.get("RANK", "0"))
+        if current_rank != 0:
+            return
+
+        epoch      = trainer.epoch + 1          # 1-indexed
+        loss_items = trainer.loss_items          # tensor([box, cls, dfl])
+        metrics    = trainer.metrics             # dict with mAP keys
+
+        box_loss = float(loss_items[0]) if loss_items is not None else 0.0
+        cls_loss = float(loss_items[1]) if loss_items is not None else 0.0
+        dfl_loss = float(loss_items[2]) if loss_items is not None else 0.0
+        map50    = float(metrics.get("metrics/mAP50(B)", 0.0))
+        map50_95 = float(metrics.get("metrics/mAP50-95(B)", 0.0))
 
         gpu_util, vram_util, temp = get_gpu_metrics()
 
-        # Log & POST metrics directly on Rank 0
-        if env_rank == 0:
-            metrics = {
-                "epoch": epoch + 1,
-                "box_loss": round(box_loss_val, 4),
-                "cls_loss": round(cls_loss_val, 4),
-                "dfl_loss": round(dfl_loss_val, 4),
-                "map50": round(map50, 4),
-                "map50_95": round(map50_95, 4),
-                "gpu": gpu_util,
-                "vram": vram_util,
-                "temp": temp
-            }
-            print(f"METRICS: {json.dumps(metrics)}")
-            
-            # Save checkpoint state
-            os.makedirs("worker", exist_ok=True)
-            torch.save({
-                "epoch": epoch,
-                "model_state_dict": model.module.state_dict(),
-                "optimizer_state_dict": optimizer.state_dict(),
-                "loss": avg_loss
-            }, checkpoint_path)
-            print(f"[Rank 0] Saved training checkpoint to {checkpoint_path}")
+        payload = {
+            "epoch":    epoch,
+            "box_loss": round(box_loss, 4),
+            "cls_loss": round(cls_loss, 4),
+            "dfl_loss": round(dfl_loss, 4),
+            "map50":    round(map50, 4),
+            "map50_95": round(map50_95, 4),
+            "gpu":      gpu_util,
+            "vram":     vram_util,
+            "temp":     temp,
+        }
 
-            # Upload checkpoint to Master
-            if args.orchestrator_url:
-                try:
-                    upload_chk_url = f"{args.orchestrator_url}/train/jobs/{args.job_id}/checkpoint"
-                    print(f"[Rank 0] Uploading checkpoint to master: {upload_chk_url}")
-                    with open(checkpoint_path, "rb") as f:
-                        response = requests.post(
-                            upload_chk_url,
-                            files={"file": f},
-                            timeout=30
-                        )
-                    if response.status_code == 200:
-                        print(f"[Rank 0] Checkpoint successfully uploaded to master.")
-                    else:
-                        print(f"[Rank 0] Checkpoint upload failed: {response.text}")
-                except Exception as e:
-                    print(f"[Rank 0] Checkpoint upload failed with error: {e}")
+        # Print in the format the orchestrator already parses from stdout
+        print(f"METRICS: {json.dumps(payload)}", flush=True)
 
-            if args.orchestrator_url:
-                try:
-                    metrics_url = f"{args.orchestrator_url}/train/metrics"
-                    payload = {
-                        "job_id": args.job_id,
-                        "epoch": epoch + 1,
-                        "box_loss": box_loss_val,
-                        "cls_loss": cls_loss_val,
-                        "dfl_loss": dfl_loss_val,
-                        "map50": map50,
-                        "map50_95": map50_95,
-                        "gpu": gpu_util,
-                        "vram": vram_util,
-                        "temp": temp
-                    }
-                    requests.post(metrics_url, json=payload, timeout=5)
-                except Exception as e:
-                    print(f"[Rank 0] Failed to send metrics to master: {e}")
+        if orchestrator_url:
+            try:
+                requests.post(
+                    f"{orchestrator_url}/train/metrics",
+                    json={"job_id": job_id, **payload},
+                    timeout=5
+                )
+            except Exception as exc:
+                print(f"[Rank 0] Failed to send metrics: {exc}", flush=True)
 
-        dist.barrier()
+    def on_train_end(trainer):
+        """Upload final checkpoint to master orchestrator after all epochs finish."""
+        current_rank = int(os.environ.get("RANK", "0"))
+        if current_rank != 0 or not orchestrator_url:
+            return
 
-    # Upload final model to Master on Rank 0
-    if env_rank == 0 and args.orchestrator_url:
+        best_ckpt = str(trainer.best)
+        if not os.path.exists(best_ckpt):
+            best_ckpt = str(trainer.last)
+
+        # Upload checkpoint
         try:
-            upload_url = f"{args.orchestrator_url}/train/upload_model"
-            print(f"[Rank 0] Uploading final trained model to master: {upload_url}")
-            with open(checkpoint_path, "rb") as f:
-                response = requests.post(
+            upload_chk_url = f"{orchestrator_url}/train/jobs/{job_id}/checkpoint"
+            print(f"[Rank 0] Uploading checkpoint to master: {upload_chk_url}", flush=True)
+            with open(best_ckpt, "rb") as f:
+                resp = requests.post(upload_chk_url, files={"file": f}, timeout=60)
+            print(
+                f"[Rank 0] Checkpoint upload {'succeeded' if resp.status_code == 200 else 'FAILED: ' + resp.text}",
+                flush=True
+            )
+        except Exception as exc:
+            print(f"[Rank 0] Checkpoint upload error: {exc}", flush=True)
+
+        # Upload final model
+        try:
+            upload_url = f"{orchestrator_url}/train/upload_model"
+            print(f"[Rank 0] Uploading final model to master: {upload_url}", flush=True)
+            with open(best_ckpt, "rb") as f:
+                resp = requests.post(
                     upload_url,
-                    data={"job_id": args.job_id},
+                    data={"job_id": job_id},
                     files={"file": f},
                     timeout=60
                 )
-            if response.status_code == 200:
-                print(f"[Rank 0] Model successfully uploaded to master.")
-            else:
-                print(f"[Rank 0] Model upload failed: {response.text}")
-        except Exception as e:
-            print(f"[Rank 0] Model upload failed with error: {e}")
+            print(
+                f"[Rank 0] Model upload {'succeeded' if resp.status_code == 200 else 'FAILED: ' + resp.text}",
+                flush=True
+            )
+        except Exception as exc:
+            print(f"[Rank 0] Model upload error: {exc}", flush=True)
 
-    dist.destroy_process_group()
-    print(f"[Rank {env_rank}] Training finished. Cleaned up process group.")
+    model.add_callback("on_train_epoch_end", on_train_epoch_end)
+    model.add_callback("on_train_end",       on_train_end)
+
+    # ── Train ─────────────────────────────────────────────────────────────────
+    # Ultralytics handles full DDP setup internally when launched via torchrun.
+    # For single-GPU runs, launch with plain python (world_size=1, no torchrun).
+    # For multi-GPU/multi-node, launch via:
+    #   torchrun --nnodes=N --nproc_per_node=1 --rdzv_id=... trainer.py ...
+    model.train(
+        data=args.dataset,
+        epochs=args.epochs,
+        batch=batch,               # -1 = Ultralytics auto-batch
+        lr0=args.lr,
+        device=device_str,
+        project=checkpoint_dir,
+        name="run",
+        exist_ok=True,
+        verbose=(rank == 0),       # only rank-0 prints progress bars
+        nbs=64,                    # nominal batch size for LR scaling
+    )
+
+    print(f"[Rank {rank}] Training finished.", flush=True)
+
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except Exception as exc:
+        print(f"\n==========================================", file=sys.stderr)
+        print(f"CRITICAL ERROR IN TRAINER.PY (Rank {os.environ.get('RANK', 'Unknown')}):", file=sys.stderr)
+        print(str(exc), file=sys.stderr)
+        print(f"==========================================", file=sys.stderr)
+        traceback.print_exc(file=sys.stderr)
+        sys.exit(1)

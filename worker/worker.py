@@ -1,13 +1,54 @@
-import torch
 import json
 import sys
 import os
 import time
 import socket
 import argparse
-import requests
 import threading
 import subprocess
+import signal
+
+# Check and install dependencies at startup
+def check_and_install_dependencies():
+    print("[*] Running dependency and environment checks...")
+    
+    # 1. Virtual Environment check
+    is_venv = (sys.prefix != sys.base_prefix) or 'VIRTUAL_ENV' in os.environ
+    if is_venv:
+        print("[+] Environment check: Running inside a Virtual Environment.")
+    else:
+        print("[!] Warning: Not running inside a Virtual Environment. System-wide python packages will be affected.")
+
+    # 2. NVIDIA Driver & GPU check
+    try:
+        subprocess.check_output("nvidia-smi", shell=True, stderr=subprocess.DEVNULL)
+        print("[+] Driver check: NVIDIA driver is installed and nvidia-smi is working.")
+    except Exception:
+        print("[!] Driver check: nvidia-smi not found or failed. GPU training may not be available (CPU only).")
+
+    # 3. Pip dependencies check & install
+    required_packages = {
+        "requests": "requests",
+        "torch": "torch"
+    }
+    
+    for lib_name, pip_name in required_packages.items():
+        try:
+            __import__(lib_name)
+            print(f"[+] Dependency check: '{lib_name}' is already installed.")
+        except ImportError:
+            print(f"[!] Dependency check: '{lib_name}' is missing. Attempting automatic installation via pip...")
+            try:
+                subprocess.check_call([sys.executable, "-m", "pip", "install", pip_name])
+                print(f"[+] Dependency check: Successfully installed '{lib_name}' via pip.")
+            except Exception as e:
+                print(f"[-] Dependency check error: Failed to install '{lib_name}'. Error: {e}")
+                sys.exit(1)
+
+check_and_install_dependencies()
+
+import torch
+import requests
 
 def get_gpu_metrics():
     try:
@@ -57,13 +98,55 @@ def heartbeat_loop(master_url, node_ip):
 
 def main():
     parser = argparse.ArgumentParser(description="Persistent Distributed Training Worker Agent")
-    parser.add_argument("--master", type=str, default="http://localhost:8000", help="Master Orchestrator URL")
+    parser.add_argument("--master", type=str, default=None, help="Master Orchestrator URL")
     parser.add_argument("--ip", type=str, default=None, help="IP address of this worker node")
     parser.add_argument("--ssh-user", type=str, default="cactus", help="SSH username")
     parser.add_argument("--ssh-port", type=int, default=22, help="SSH port")
     args = parser.parse_args()
 
-    master_url = args.master.rstrip("/")
+    master_url = args.master
+    if master_url:
+        master_url = master_url.rstrip("/")
+
+    # Keep asking until a valid, reachable URL is confirmed
+    while True:
+        if not master_url:
+            try:
+                master_url = input("\nEnter Master Orchestrator URL (e.g., http://192.168.1.21:8000): ").strip().rstrip("/")
+            except EOFError:
+                print("\n[!] Non-interactive mode: --master argument is required.")
+                sys.exit(1)
+
+        if not master_url:
+            print("[!] URL cannot be empty. Please try again.")
+            master_url = None
+            continue
+
+        # Basic format check
+        if not (master_url.startswith("http://") or master_url.startswith("https://")):
+            print(f"[!] '{master_url}' does not look like a valid URL (must start with http:// or https://). Try again.")
+            master_url = None
+            continue
+
+        # Connectivity check
+        print(f"[*] Testing connection to master at {master_url} ...")
+        try:
+            test = requests.get(f"{master_url}/health", timeout=4)
+            print(f"[+] Master reachable (status {test.status_code}). Proceeding.")
+            break
+        except requests.exceptions.ConnectionError:
+            print(f"[-] Cannot connect to '{master_url}'. Make sure the master is running and the URL is correct.")
+        except requests.exceptions.Timeout:
+            print(f"[-] Connection to '{master_url}' timed out. Check the IP/port and try again.")
+        except Exception as e:
+            print(f"[-] Unexpected error while connecting: {e}")
+
+        retry = input("    Re-enter a different URL? (Y/n): ").strip().lower()
+        if retry == "n":
+            print("[!] Aborted by user.")
+            sys.exit(1)
+        master_url = None  # force re-prompt
+
     node_ip = args.ip if args.ip else get_local_ip()
 
     print(f"[*] Starting worker agent on node IP: {node_ip} targeting master: {master_url}")
@@ -134,10 +217,6 @@ def main():
                 env["PATH"] = bin_dir + os.pathsep + env.get("PATH", "")
                 
                 # Execute training command
-                import signal
-                import threading
-                import time
-                
                 process = subprocess.Popen(
                     cmd,
                     shell=True,
@@ -166,11 +245,12 @@ def main():
                             if res.status_code == 200:
                                 status = res.json().get("status")
                                 if status in ["failed", "retry", "stopped"]:
-                                    print(f"\n[!] Job status changed to {status}. Terminating local training process group...")
+                                    print(f"\n[!] Job status changed to {status}. Force terminating local training process group...")
                                     try:
-                                        os.killpg(os.getpgid(process.pid), signal.SIGTERM)
+                                        import signal
+                                        os.killpg(os.getpgid(process.pid), signal.SIGKILL)
                                     except Exception:
-                                        process.terminate()
+                                        process.kill()
                                     break
                         except Exception:
                             pass
@@ -198,26 +278,46 @@ def main():
                 
                 if exit_code == 0:
                     print(f"[+] Job #{job_id} completed successfully.")
-                    requests.post(
-                        f"{master_url}/train/jobs/{job_id}/status",
-                        json={"status": "completed"},
-                        timeout=5
-                    )
+                    try:
+                        requests.post(
+                            f"{master_url}/train/jobs/{job_id}/status",
+                            json={"status": "completed"},
+                            timeout=5
+                        )
+                    except Exception:
+                        pass
                 else:
                     print(f"[-] Job #{job_id} failed with exit code {exit_code}.")
-                    requests.post(
-                        f"{master_url}/train/jobs/{job_id}/status",
-                        json={"status": "failed"},
-                        timeout=5
-                    )
-            
+                    try:
+                        requests.post(
+                            f"{master_url}/train/jobs/{job_id}/status",
+                            json={"status": "failed"},
+                            timeout=5
+                        )
+                    except Exception:
+                        pass
+
+                # Check master job status — exit cleanly if the full training run is done
+                try:
+                    status_res = requests.get(f"{master_url}/train/jobs/{master_job_id}", timeout=5)
+                    if status_res.status_code == 200:
+                        master_status = status_res.json().get("status", "")
+                        if master_status in ("completed", "stopped"):
+                            print("\n" + "=" * 56)
+                            print(" ✅  YOUR JOB IS DONE! Training has finished successfully.")
+                            print("    This worker node will now stop processing.")
+                            print("=" * 56)
+                            sys.exit(0)
+                except Exception:
+                    pass
+
             elif res.status_code == 204:
-                # No jobs available
+                print("NO JOBS AVAILABLE IN THE QUEUE")# No jobs available
                 pass
-                
+
         except Exception as e:
             print(f"[Error] Loop execution exception: {e}")
-            
+
         time.sleep(2)
 
 if __name__ == "__main__":

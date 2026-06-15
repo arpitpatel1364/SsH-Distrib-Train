@@ -585,7 +585,7 @@
               <div class="glass-card flex-col gap-md">
                 <div>
                   <h3 class="text-md font-semibold color-primary">Register Cluster Node</h3>
-                  <p class="text-xs color-muted mt-sm">Add a new DDP worker target. Requires pre-configured passwordless SSH access.</p>
+                  <p class="text-xs color-muted mt-sm">Add a new worker node. SSH password is always required to verify the connection.</p>
                 </div>
                 
                 <form id="add-node-form-real" class="flex-col gap-md">
@@ -601,14 +601,38 @@
                     <label class="form-label" for="node-port-input">SSH Port</label>
                     <input class="glass-input" type="number" id="node-port-input" value="22" required>
                   </div>
+                  <div class="form-group">
+                    <label class="form-label" for="node-password-input">SSH Password <span style="color:var(--danger);">*</span></label>
+                    <input class="glass-input" type="password" id="node-password-input" placeholder="Required to verify connection" required>
+                  </div>
+
+                  <!-- Auth mode toggle -->
+                  <div style="background:var(--bg-muted); border:1px solid var(--border-default); border-radius:var(--radius-sm); padding:12px;">
+                    <label class="flex-row align-center gap-xs text-sm color-secondary" style="cursor:pointer; font-weight:600;">
+                      <input type="checkbox" id="node-install-key-toggle" style="width:16px;height:16px;accent-color:var(--primary);">
+                      Also install SSH public key (passwordless access after this)
+                    </label>
+                    <p class="text-xs color-muted mt-xs" style="margin-left:22px;">If checked, the key will be appended to <code>~/.ssh/authorized_keys</code> on the worker.</p>
+                  </div>
+
+                  <!-- Public key input (shown only when toggle is ON) -->
+                  <div class="form-group hidden" id="node-pubkey-group">
+                    <label class="form-label" for="node-pubkey-input">Master's Public Key</label>
+                    <textarea class="glass-input" id="node-pubkey-input"
+                      rows="4"
+                      placeholder="Paste your public key here, e.g. ssh-ed25519 AAAA... user@host"
+                      style="font-family:var(--font-mono); font-size:11px; resize:vertical; line-height:1.4;"></textarea>
+                    <p class="text-xs color-muted mt-xs">Run <code>cat ~/.ssh/id_ed25519.pub</code> on the master to get your public key.</p>
+                  </div>
                   
                   <div id="node-message-error" class="error-message hidden"></div>
-                  <button type="submit" class="btn-primary" id="btn-submit-node" style="height: 40px; margin-top: 10px;">
+                  <button type="submit" class="btn-primary" id="btn-submit-node" style="height: 40px; margin-top: 4px;">
                     Register Node
                   </button>
                 </form>
               </div>
             </div>
+
 
             <!-- Nodes Cards Grid -->
             <div class="col-8">
@@ -655,7 +679,7 @@
                     </div>
                     <div class="col-6 form-group">
                       <label class="form-label" for="job-batch">Batch Size (Per Node)</label>
-                      <input class="glass-input" type="number" id="job-batch" value="16" min="1" required>
+                      <input class="glass-input" type="number" id="job-batch" value="16" required>
                     </div>
                   </div>
                   
@@ -770,25 +794,50 @@
           </div>
         </div>
 
-        <!-- SECTION 7: OTA UPDATES VIEW -->
         <div id="view-ota" class="view-section hidden">
-          <div class="glass-card flex-col gap-md" style="max-width: 600px;">
-            <h3 class="text-md font-semibold color-primary">Over-The-Air (OTA) Node Sync</h3>
-            <p class="text-xs color-muted">Pushes the latest worker code and configurations (`worker/`) to all registered worker nodes concurrently via SFTP. Ensures the runtime codebase matches the master orchestrator.</p>
-            
-            <div class="p-md" style="background: var(--bg-muted); border: 1px solid var(--border-default); border-radius: var(--radius-sm); font-size: var(--text-sm);">
-              <strong>Worker Target Location:</strong> ~/worker/<br>
-              <strong>Transferred Package:</strong> Code packages and configs.
+          <div class="flex-col gap-lg" style="max-width: 600px;">
+
+            <!-- OTA Sync Card -->
+            <div class="glass-card flex-col gap-md">
+              <h3 class="text-md font-semibold color-primary">Over-The-Air (OTA) Node Sync</h3>
+              <p class="text-xs color-muted">Pushes the latest worker code and configurations (`worker/`) to all registered worker nodes concurrently via SFTP. Ensures the runtime codebase matches the master orchestrator.</p>
+              
+              <div class="p-md" style="background: var(--bg-muted); border: 1px solid var(--border-default); border-radius: var(--radius-sm); font-size: var(--text-sm);">
+                <strong>Worker Target Location:</strong> ~/worker/<br>
+                <strong>Transferred Package:</strong> Code packages and configs.
+              </div>
+              
+              <div id="ota-status-error" class="error-message hidden"></div>
+              <div id="ota-status-success" class="font-semibold text-xs color-success hidden" style="text-align: center;"></div>
+              
+              <button class="btn-primary" id="btn-trigger-ota" style="height: 44px; margin-top: 10px;">
+                Sync Worker Code Package
+              </button>
             </div>
-            
-            <div id="ota-status-error" class="error-message hidden"></div>
-            <div id="ota-status-success" class="font-semibold text-xs color-success hidden" style="text-align: center;"></div>
-            
-            <button class="btn-primary" id="btn-trigger-ota" style="height: 44px; margin-top: 10px;">
-              Sync Worker Code Package
-            </button>
+
+            <!-- Manual Package & Download Card -->
+            <div class="glass-card flex-col gap-md">
+              <div>
+                <h3 class="text-md font-semibold color-primary"> Manual Worker Package</h3>
+                <p class="text-xs color-muted mt-sm">Zip the entire <code>worker/</code> folder into a distributable archive saved in the project root. Share the zip file manually with any worker machine that can't be reached over SSH.</p>
+              </div>
+
+              <div class="p-md" style="background: var(--bg-muted); border: 1px solid var(--border-default); border-radius: var(--radius-sm); font-size: var(--text-sm);">
+                <strong>Output:</strong> <code>worker_package_&lt;timestamp&gt;.zip</code> in the project root.<br>
+                <strong>Excludes:</strong> <code>__pycache__/</code>, <code>runs/</code>, <code>.pyc</code> files.
+              </div>
+
+              <div id="pkg-status-error" class="error-message hidden"></div>
+              <div id="pkg-status-success" class="font-semibold text-xs color-success hidden" style="text-align: center;"></div>
+
+              <button class="btn-primary" id="btn-package-worker" style="height: 44px; margin-top: 4px; background: linear-gradient(135deg, var(--info), var(--primary));">
+                <span id="btn-package-worker-label"> Build &amp; Download Worker Package</span>
+              </button>
+            </div>
+
           </div>
         </div>
+
 
         <!-- SECTION 8: SYSTEM SETTINGS VIEW -->
         <div id="view-settings" class="view-section hidden">

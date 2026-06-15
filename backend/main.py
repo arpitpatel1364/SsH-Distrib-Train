@@ -62,6 +62,11 @@ def status():
         "api_docs": "/docs"
     }
 
+@app.get("/health")
+def health():
+    return {"status": "ok"}
+
+
 @app.get("/")
 def serve_ui():
     return FileResponse("project/index.html")

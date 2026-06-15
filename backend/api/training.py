@@ -67,7 +67,7 @@ def start_training_job(
                 "rsync", "-az", "-e",
                 f"ssh -p {node.ssh_port} -o StrictHostKeyChecking=no",
                 "dataset/",
-                f"{node.ssh_user}@{node.ip}:worker/dataset/"
+                f"{node.ssh_user}@{node.ip}:Desktop/worker/dataset/"
             ]
             subprocess.run(rsync_cmd, timeout=10, capture_output=True)
         except Exception as e:
@@ -92,7 +92,8 @@ def start_training_job(
     # 3. Create sub-jobs (one for each node in the process group)
     nnodes = len(active_nodes)
     master_addr = active_nodes[0].ip
-    master_port = 29500
+    import random
+    master_port = random.randint(29500, 39500)
     total_world_size = sum(max(1, n.gpu_count) for n in active_nodes)
 
     import socket
@@ -110,13 +111,27 @@ def start_training_job(
         nproc = max(1, node.gpu_count)
         backend = "gloo" if node.gpu_count == 0 else "nccl"
         
+        # TORCH_NCCL_ENABLE_MONITORING=0 disables NCCL's internal heartbeat TCPStore
+        # which was causing Broken pipe because both machines share the hostname
+        # 'smart-Default-string', causing rank1 to connect to itself instead of rank0.
+        # MASTER_ADDR as env var ensures NCCL's internal stores also resolve by IP.
         cmd = (
+            f"MASTER_ADDR={master_addr} "
+            f"MASTER_PORT={master_port} "
+            f"TORCH_NCCL_ENABLE_MONITORING=0 "
+            f"NCCL_IB_DISABLE=1 "
+            f"NCCL_SOCKET_FAMILY=AF_INET "
+            f"GLOO_SOCKET_FAMILY=AF_INET "
+            f"NCCL_SOCKET_IFNAME=^lo,docker,virbr,br- "
+            f"GLOO_SOCKET_IFNAME=en,eth,em,bond,wl "
             f"torchrun "
             f"--nnodes={nnodes} "
             f"--node_rank={rank} "
             f"--nproc_per_node={nproc} "
-            f"--master_addr={master_addr} "
-            f"--master_port={master_port} "
+            f"--rdzv_backend=c10d "
+            f"--rdzv_endpoint={master_addr}:{master_port} "
+            f"--rdzv_id={job_id} "
+            f"--local-addr={node.ip} "
             f"worker/trainer.py "
             f"--world_size {total_world_size} "
             f"--rank {rank} "
@@ -170,7 +185,8 @@ def get_next_job(node_ip: str, db: Session = Depends(get_db)):
     job.started_at = datetime.utcnow()
     
     # Find master job and mark as running
-    master_id = job.id.rsplit("_", 1)[0] # job_uuid
+    # Sub-job IDs are formatted as `{master_job_id}_{node_ip}` e.g. `job_yolo_65dc_192.168.1.13`
+    master_id = job.id.rsplit("_", 1)[0]
     master_job = db.query(Job).filter(Job.id == master_id).first()
     if master_job and master_job.status != "running":
         master_job.status = "running"
@@ -194,8 +210,7 @@ def get_next_job(node_ip: str, db: Session = Depends(get_db)):
 @router.get("/jobs/{job_id}", response_model=JobResponse)
 def get_job(
     job_id: str,
-    db: Session = Depends(get_db),
-    current_user=Depends(get_current_user)
+    db: Session = Depends(get_db)
 ):
     job = db.query(Job).filter(Job.id == job_id).first()
     if not job:
@@ -251,8 +266,9 @@ def update_job_status(job_id: str, payload: StatusPayload, db: Session = Depends
         if master_job:
             sub_jobs = db.query(Job).filter(Job.id.like(f"{master_id}_%")).all()
             if payload.status == "failed":
-                master_job.status = "retry"  # Trigger retry logic in broadcast loop
-                master_job.finished_at = datetime.utcnow()
+                if master_job.status != "stopped":
+                    master_job.status = "retry"  # Trigger retry logic in broadcast loop
+                    master_job.finished_at = datetime.utcnow()
             elif all(sj.status == "completed" for sj in sub_jobs):
                 master_job.status = "completed"
                 master_job.finished_at = datetime.utcnow()
@@ -364,6 +380,96 @@ def download_checkpoint(job_id: str):
     if not os.path.exists(checkpoint_path):
         raise HTTPException(status_code=404, detail="Checkpoint file not found")
     return FileResponse(checkpoint_path, media_type="application/octet-stream", filename=f"checkpoint_{job_id}.pt")
+
+@router.post("/ota")
+def trigger_ota_sync(
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user)
+):
+    active_nodes = db.query(Node).filter(Node.status == "active").all()
+    if not active_nodes:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No active nodes to sync. Please register and activate nodes first."
+        )
+    
+    import subprocess
+    failed_nodes = []
+    for node in active_nodes:
+        try:
+            # Sync the worker/ directory to the remote node's worker/ directory
+            rsync_cmd = [
+                "rsync", "-az", "-e",
+                f"ssh -p {node.ssh_port} -o StrictHostKeyChecking=no",
+                "worker/",
+                f"{node.ssh_user}@{node.ip}:Desktop/worker/"
+            ]
+            res = subprocess.run(rsync_cmd, timeout=15, capture_output=True)
+            if res.returncode != 0:
+                error_msg = res.stderr.decode().strip()
+                failed_nodes.append(f"{node.ip} (rsync exit {res.returncode}: {error_msg})")
+        except Exception as e:
+            failed_nodes.append(f"{node.ip} ({str(e)})")
+            
+    if failed_nodes:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"OTA Sync failed for nodes: {', '.join(failed_nodes)}"
+        )
+        
+    return {"status": "success", "detail": "Codebase successfully synced to all active nodes."}
+
+
+# ---------------------------------------------------------------------------
+# Package worker folder as a distributable zip (manual share)
+# ---------------------------------------------------------------------------
+import zipfile
+
+@router.post("/package-worker")
+def package_worker(current_user=Depends(get_current_user)):
+    """
+    Zips the entire worker/ directory and saves it as worker_package_<timestamp>.zip
+    in the project root directory. Returns the filename for the client to download.
+    """
+    if not os.path.isdir("worker"):
+        raise HTTPException(status_code=404, detail="worker/ directory not found.")
+
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    zip_filename = f"worker_package_{timestamp}.zip"
+
+    try:
+        with zipfile.ZipFile(zip_filename, "w", zipfile.ZIP_DEFLATED) as zf:
+            for root_dir, dirs, files in os.walk("worker"):
+                # Skip __pycache__, runs, and checkpoint files
+                dirs[:] = [d for d in dirs if d not in ("__pycache__", "runs", ".git")]
+                for file in files:
+                    if file.endswith(".pyc"):
+                        continue
+                    abs_path = os.path.join(root_dir, file)
+                    # Archive path relative to cwd so zip extracts as worker/...
+                    arc_name = abs_path
+                    zf.write(abs_path, arc_name)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to create zip: {e}")
+
+    return {"status": "ok", "filename": zip_filename}
+
+
+@router.get("/download-package")
+def download_worker_package(filename: str, current_user=Depends(get_current_user)):
+    """
+    Serves a previously packaged worker zip file for download.
+    filename must match a .zip file in the project root.
+    """
+    # Safety: only allow zip files in root dir, prevent path traversal
+    safe_name = os.path.basename(filename)
+    if not safe_name.endswith(".zip") or not safe_name.startswith("worker_package_"):
+        raise HTTPException(status_code=400, detail="Invalid filename.")
+    if not os.path.exists(safe_name):
+        raise HTTPException(status_code=404, detail="Package file not found. Generate it first.")
+
+    return FileResponse(safe_name, media_type="application/zip", filename=safe_name)
+
 
 
 

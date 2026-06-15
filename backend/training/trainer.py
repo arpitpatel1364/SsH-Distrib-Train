@@ -45,14 +45,21 @@ def check_and_recover_jobs(db: Session):
         db.commit()
         add_job_log(m_job.id, f"Auto-recovery triggered. Restarting training with {len(active_nodes)} active nodes...")
         
-        # Delete old sub-jobs for this master job
-        db.query(Job).filter(Job.assigned_node != None, Job.id.like(f"{m_job.id}_%")).delete(synchronize_session=False)
+        # Delete old sub-jobs for this master job.
+        # Sub-job IDs are: {master_job_id}_{node_ip} e.g. job_yolo_65dc_192.168.1.13
+        # We use LIKE with the master ID prefix — safe because node IPs start with digits
+        # and master job IDs never end with an underscore+digit pattern.
+        db.query(Job).filter(
+            Job.assigned_node != None,
+            Job.id.like(f"{m_job.id}_%")
+        ).delete(synchronize_session=False)
         db.commit()
         
         # Re-create sub-jobs with new active nodes
         nnodes = len(active_nodes)
         master_addr = active_nodes[0].ip
-        master_port = 29500
+        import random
+        master_port = random.randint(29500, 39500)
         total_world_size = sum(max(1, n.gpu_count) for n in active_nodes)
         
         try:
@@ -64,17 +71,30 @@ def check_and_recover_jobs(db: Session):
             orchestrator_ip = "127.0.0.1"
         orchestrator_url = f"http://{orchestrator_ip}:8000"
         
+        import time
+        retry_suffix = str(int(time.time()))
+        
         for rank, node in enumerate(active_nodes):
             nproc = max(1, node.gpu_count)
             backend = "gloo" if node.gpu_count == 0 else "nccl"
             
             cmd = (
+                f"MASTER_ADDR={master_addr} "
+                f"MASTER_PORT={master_port} "
+                f"TORCH_NCCL_ENABLE_MONITORING=0 "
+                f"NCCL_IB_DISABLE=1 "
+                f"NCCL_SOCKET_FAMILY=AF_INET "
+                f"GLOO_SOCKET_FAMILY=AF_INET "
+                f"NCCL_SOCKET_IFNAME=^lo,docker,virbr,br- "
+                f"GLOO_SOCKET_IFNAME=en,eth,em,bond,wl "
                 f"torchrun "
                 f"--nnodes={nnodes} "
                 f"--node_rank={rank} "
                 f"--nproc_per_node={nproc} "
-                f"--master_addr={master_addr} "
-                f"--master_port={master_port} "
+                f"--rdzv_backend=c10d "
+                f"--rdzv_endpoint={master_addr}:{master_port} "
+                f"--rdzv_id={m_job.id}-retry "
+                f"--local-addr={node.ip} "
                 f"worker/trainer.py "
                 f"--world_size {total_world_size} "
                 f"--rank {rank} "
@@ -91,7 +111,7 @@ def check_and_recover_jobs(db: Session):
             )
             
             sub_job = Job(
-                id=f"{m_job.id}_{node.ip}",
+                id=f"{m_job.id}_{node.ip}-{retry_suffix}",
                 status="pending",
                 model_name=m_job.model_name,
                 dataset_path=m_job.dataset_path,

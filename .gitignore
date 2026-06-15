@@ -36,3 +36,12 @@ project/node_modules/
 .idea/
 .DS_Store
 __pycache__/
+
+# Dataset & training outputs (large files, not for git)
+dataset/
+outputs/
+worker/runs/
+worker/checkpoint_*.pt
+worker/yolov8*.pt
+
+Pasted image.png

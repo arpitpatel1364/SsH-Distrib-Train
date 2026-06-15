@@ -80,6 +80,10 @@ const elements = {
   nodeIpInput: document.getElementById("node-ip-input"),
   nodeUserInput: document.getElementById("node-user-input"),
   nodePortInput: document.getElementById("node-port-input"),
+  nodePasswordInput: document.getElementById("node-password-input"),
+  nodeInstallKeyToggle: document.getElementById("node-install-key-toggle"),
+  nodePubkeyGroup: document.getElementById("node-pubkey-group"),
+  nodePubkeyInput: document.getElementById("node-pubkey-input"),
   nodeMessageError: document.getElementById("node-message-error"),
   btnSubmitNode: document.getElementById("btn-submit-node"),
   nodesGridTitle: document.getElementById("nodes-grid-title"),
@@ -112,6 +116,12 @@ const elements = {
   btnTriggerOta: document.getElementById("btn-trigger-ota"),
   otaStatusError: document.getElementById("ota-status-error"),
   otaStatusSuccess: document.getElementById("ota-status-success"),
+
+  // Package Worker
+  btnPackageWorker: document.getElementById("btn-package-worker"),
+  btnPackageWorkerLabel: document.getElementById("btn-package-worker-label"),
+  pkgStatusError: document.getElementById("pkg-status-error"),
+  pkgStatusSuccess: document.getElementById("pkg-status-success"),
   
   // Settings view
   settingsBackendHost: document.getElementById("settings-backend-host"),
@@ -200,6 +210,18 @@ function setupEventListeners() {
   if (elements.loginForm) elements.loginForm.addEventListener("submit", handleLogin);
   if (elements.addNodeFormReal) elements.addNodeFormReal.addEventListener("submit", handleAddNode);
   if (elements.launchTrainingForm) elements.launchTrainingForm.addEventListener("submit", handleLaunchTraining);
+
+  // SSH key toggle — show/hide pubkey textarea
+  if (elements.nodeInstallKeyToggle) {
+    elements.nodeInstallKeyToggle.addEventListener("change", () => {
+      if (elements.nodeInstallKeyToggle.checked) {
+        elements.nodePubkeyGroup.classList.remove("hidden");
+      } else {
+        elements.nodePubkeyGroup.classList.add("hidden");
+        elements.nodePubkeyInput.value = "";
+      }
+    });
+  }
   
   // Actions
   if (elements.btnRefreshNodes) elements.btnRefreshNodes.addEventListener("click", triggerNodesRefresh);
@@ -209,6 +231,7 @@ function setupEventListeners() {
     });
   }
   if (elements.btnTriggerOta) elements.btnTriggerOta.addEventListener("click", triggerOTA);
+  if (elements.btnPackageWorker) elements.btnPackageWorker.addEventListener("click", packageWorker);
   
   // Modal buttons
   if (elements.btnCloseDeleteModal) elements.btnCloseDeleteModal.addEventListener("click", closeDeleteModal);
@@ -833,7 +856,13 @@ function renderNodesGrid() {
         </div>
       </div>
       
-      <div class="node-card-footer">
+      <div class="node-card-footer" style="flex-wrap:wrap; gap:6px;">
+        <button class="btn-primary" onclick="startWorkerOnNode(${node.id}, '${node.ip}')" style="padding: 6px 12px; font-size: var(--text-xs); flex:1; min-width:110px;" id="btn-start-worker-${node.id}">
+          ▶ Start Worker
+        </button>
+        <button class="btn-secondary" onclick="stopWorkerOnNode(${node.id}, '${node.ip}')" style="padding: 6px 12px; font-size: var(--text-xs); color: var(--warning); flex:1; min-width:110px; border:none;" id="btn-stop-worker-${node.id}">
+          ◼ Stop Worker
+        </button>
         <button class="btn-secondary" onclick="triggerSingleNodeRefresh(${node.id})" style="padding: 6px 10px; font-size: var(--text-xs); border:none;">
           <span class="icon-slot" data-icon="Refresh"></span>
         </button>
@@ -845,6 +874,65 @@ function renderNodesGrid() {
     
     elements.clusterNodesGridContainer.appendChild(card);
   });
+}
+
+// --- Start / Stop Worker Agent on remote node via SSH ---
+async function startWorkerOnNode(nodeId, nodeIp) {
+  // Ask user for master URL, pre-fill with current origin
+  const defaultUrl = `${window.location.protocol}//${window.location.hostname}:8000`;
+  const masterUrl = prompt(
+    `Start worker agent on ${nodeIp}\n\nEnter the Master Orchestrator URL this node should connect to:`,
+    defaultUrl
+  );
+  if (!masterUrl || !masterUrl.trim()) return;
+
+  const btn = document.getElementById(`btn-start-worker-${nodeId}`);
+  if (btn) { btn.textContent = "Starting…"; btn.disabled = true; }
+
+  try {
+    const res = await fetch(`${API_BASE}/nodes/${nodeId}/start-worker`, {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${token}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({ master_url: masterUrl.trim() })
+    });
+    const data = await res.json();
+    if (res.ok) {
+      alert(`✅ Worker agent started on ${nodeIp}\nLogs: ${data.log_file}\nConnecting to: ${data.master_url}`);
+    } else {
+      alert(`❌ Failed to start worker on ${nodeIp}:\n${data.detail || JSON.stringify(data)}`);
+    }
+  } catch (err) {
+    alert(`❌ Network error: ${err.message}`);
+  } finally {
+    if (btn) { btn.textContent = "▶ Start Worker"; btn.disabled = false; }
+  }
+}
+
+async function stopWorkerOnNode(nodeId, nodeIp) {
+  if (!confirm(`Stop worker agent running on ${nodeIp}?`)) return;
+
+  const btn = document.getElementById(`btn-stop-worker-${nodeId}`);
+  if (btn) { btn.textContent = "Stopping…"; btn.disabled = true; }
+
+  try {
+    const res = await fetch(`${API_BASE}/nodes/${nodeId}/stop-worker`, {
+      method: "POST",
+      headers: { "Authorization": `Bearer ${token}` }
+    });
+    const data = await res.json();
+    if (res.ok) {
+      alert(`✅ Worker agent stopped on ${nodeIp}.`);
+    } else {
+      alert(`❌ Failed to stop worker on ${nodeIp}:\n${data.detail || JSON.stringify(data)}`);
+    }
+  } catch (err) {
+    alert(`❌ Network error: ${err.message}`);
+  } finally {
+    if (btn) { btn.textContent = "◼ Stop Worker"; btn.disabled = false; }
+  }
 }
 
 // --- 14. ACTIVE DDP TRAINING CONTROL & PROGRESS ---
@@ -996,35 +1084,70 @@ function appendLogsToConsole(logLines) {
 async function handleAddNode(e) {
   e.preventDefault();
   elements.nodeMessageError.classList.add("hidden");
+  elements.nodeMessageError.className = "error-message hidden";
   elements.btnSubmitNode.disabled = true;
-  elements.btnSubmitNode.textContent = "Verifying connection...";
-  
-  const ip = elements.nodeIpInput.value.trim();
-  const ssh_user = elements.nodeUserInput.value.trim();
-  const ssh_port = parseInt(elements.nodePortInput.value.trim(), 10);
-  
+
+  const ip          = elements.nodeIpInput.value.trim();
+  const ssh_user    = elements.nodeUserInput.value.trim();
+  const ssh_port    = parseInt(elements.nodePortInput.value.trim(), 10);
+  const ssh_password = elements.nodePasswordInput ? elements.nodePasswordInput.value : "";
+  const install_key = elements.nodeInstallKeyToggle ? elements.nodeInstallKeyToggle.checked : false;
+  const public_key  = (install_key && elements.nodePubkeyInput) ? elements.nodePubkeyInput.value.trim() : null;
+
+  // Validate password
+  if (!ssh_password) {
+    elements.nodeMessageError.textContent = "SSH Password is required.";
+    elements.nodeMessageError.className = "error-message";
+    elements.nodeMessageError.classList.remove("hidden");
+    elements.btnSubmitNode.disabled = false;
+    return;
+  }
+
+  // Validate public key when toggle is on
+  if (install_key && !public_key) {
+    elements.nodeMessageError.textContent = "Please paste your public key, or uncheck the SSH key option.";
+    elements.nodeMessageError.className = "error-message";
+    elements.nodeMessageError.classList.remove("hidden");
+    elements.btnSubmitNode.disabled = false;
+    return;
+  }
+
+  if (install_key) {
+    elements.btnSubmitNode.textContent = "Connecting & installing SSH key...";
+  } else {
+    elements.btnSubmitNode.textContent = "Verifying connection...";
+  }
+
   try {
-    const res = await fetch(`${API_BASE}/nodes/add`, {
+    const body = { ip, ssh_user, ssh_port, ssh_password, install_key };
+    if (install_key && public_key) body.public_key = public_key;
+
+    const res = await fetch(`${API_BASE}/nodes/add-with-auth`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         "Authorization": `Bearer ${token}`
       },
-      body: JSON.stringify({ ip, ssh_user, ssh_port })
+      body: JSON.stringify(body)
     });
     const data = await res.json();
-    
+
     if (res.ok) {
+      // Clear form
       elements.nodeIpInput.value = "";
+      if (elements.nodePasswordInput) elements.nodePasswordInput.value = "";
+      if (elements.nodeInstallKeyToggle) elements.nodeInstallKeyToggle.checked = false;
+      if (elements.nodePubkeyGroup) elements.nodePubkeyGroup.classList.add("hidden");
+      if (elements.nodePubkeyInput) elements.nodePubkeyInput.value = "";
+
+      const keyMsg = install_key ? " SSH key installed for passwordless access." : " (password auth)";
       elements.nodeMessageError.className = "error-message color-success";
-      elements.nodeMessageError.textContent = `Node ${ip} successfully connected & added.`;
+      elements.nodeMessageError.textContent = `Node ${ip} connected & registered.${keyMsg}`;
       elements.nodeMessageError.classList.remove("hidden");
-      
-      // refresh nodes state immediately
       triggerNodesRefresh();
     } else {
       elements.nodeMessageError.className = "error-message";
-      elements.nodeMessageError.textContent = data.detail || "Verification failed. Check credentials and keypair.";
+      elements.nodeMessageError.textContent = data.detail || "Registration failed. Check credentials.";
       elements.nodeMessageError.classList.remove("hidden");
     }
   } catch (err) {
@@ -1118,13 +1241,19 @@ async function handleLaunchTraining(e) {
   const lr0 = parseFloat(elements.jobLr.value);
   
   try {
-    const res = await fetch(`${API_BASE}/training/launch`, {
+    const res = await fetch(`${API_BASE}/train/start`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         "Authorization": `Bearer ${token}`
       },
-      body: JSON.stringify({ model_name, dataset_path, epochs, batch_size, lr0 })
+      body: JSON.stringify({
+        model_name,
+        dataset_path,
+        epochs,
+        batch_size,
+        learning_rate: lr0
+      })
     });
     const data = await res.json();
     
@@ -1233,7 +1362,7 @@ async function triggerOTA() {
   elements.btnTriggerOta.textContent = "Deploying files in parallel via SFTP...";
   
   try {
-    const res = await fetch(`${API_BASE}/training/ota`, {
+    const res = await fetch(`${API_BASE}/train/ota`, {
       method: "POST",
       headers: { "Authorization": `Bearer ${token}` }
     });
@@ -1252,5 +1381,77 @@ async function triggerOTA() {
   } finally {
     elements.btnTriggerOta.disabled = false;
     elements.btnTriggerOta.textContent = "Sync Worker Code Package";
+  }
+}
+
+// I. Manual Worker Package Builder & Downloader
+async function packageWorker() {
+  if (!elements.pkgStatusError || !elements.pkgStatusSuccess) return;
+
+  elements.pkgStatusError.classList.add("hidden");
+  elements.pkgStatusSuccess.classList.add("hidden");
+  elements.btnPackageWorker.disabled = true;
+  elements.btnPackageWorkerLabel.textContent = "Building zip archive...";
+
+  let zipFilename = null;
+
+  try {
+    // Step 1: Ask backend to zip worker/ and return the filename
+    const packRes = await fetch(`${API_BASE}/train/package-worker`, {
+      method: "POST",
+      headers: { "Authorization": `Bearer ${token}` }
+    });
+    const packData = await packRes.json();
+
+    if (!packRes.ok) {
+      elements.pkgStatusError.textContent = packData.detail || "Failed to build package.";
+      elements.pkgStatusError.classList.remove("hidden");
+      return;
+    }
+
+    zipFilename = packData.filename;
+    elements.btnPackageWorkerLabel.textContent = "Downloading...";
+
+    // Step 2: Trigger browser download via a hidden anchor
+    const downloadUrl = `${API_BASE}/train/download-package?filename=${encodeURIComponent(zipFilename)}`;
+    const a = document.createElement("a");
+    a.href = downloadUrl;
+    // Pass auth token via URL since we can't set headers on anchor clicks
+    // Backend uses query-param token fallback for file downloads
+    a.setAttribute("download", zipFilename);
+    a.style.display = "none";
+    document.body.appendChild(a);
+
+    // Fetch with auth header, convert to blob, then download
+    const dlRes = await fetch(downloadUrl, {
+      headers: { "Authorization": `Bearer ${token}` }
+    });
+
+    if (!dlRes.ok) {
+      elements.pkgStatusError.textContent = "Package built but download failed. Check server.";
+      elements.pkgStatusError.classList.remove("hidden");
+      document.body.removeChild(a);
+      return;
+    }
+
+    const blob = await dlRes.blob();
+    const blobUrl = URL.createObjectURL(blob);
+    a.href = blobUrl;
+    a.click();
+
+    setTimeout(() => {
+      URL.revokeObjectURL(blobUrl);
+      document.body.removeChild(a);
+    }, 2000);
+
+    elements.pkgStatusSuccess.textContent = `Package ready: ${zipFilename} — download started!`;
+    elements.pkgStatusSuccess.classList.remove("hidden");
+
+  } catch (err) {
+    elements.pkgStatusError.textContent = `Error: ${err.message}`;
+    elements.pkgStatusError.classList.remove("hidden");
+  } finally {
+    elements.btnPackageWorker.disabled = false;
+    elements.btnPackageWorkerLabel.textContent = " Build & Download Worker Package";
   }
 }
