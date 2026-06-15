@@ -116,7 +116,7 @@ class AddWithAuthPayload(_BaseModel):
     ssh_password: str                  # always required
     install_key: bool = False          # if True, copy public_key into authorized_keys
     public_key: Optional[str] = None   # the key content to install (required when install_key=True)
-
+    sync_code: bool = False            # if True, zip worker/ and upload via SFTP
 
 def _parse_gpu_info(gpu_res: Optional[str]):
     gpu_count = 0
@@ -137,6 +137,19 @@ def _parse_gpu_info(gpu_res: Optional[str]):
     return gpu_count, gpu_info_list
 
 
+import os
+import zipfile
+import uuid
+
+def _get_master_public_key():
+    ssh_dir = os.path.expanduser("~/.ssh")
+    for key_name in ["id_ed25519.pub", "id_rsa.pub", "id_ecdsa.pub"]:
+        key_path = os.path.join(ssh_dir, key_name)
+        if os.path.exists(key_path):
+            with open(key_path, "r") as f:
+                return f.read().strip()
+    return None
+
 @router.post("/add-with-auth", response_model=NodeResponse)
 def add_node_with_auth(
     payload: AddWithAuthPayload,
@@ -150,11 +163,14 @@ def add_node_with_auth(
             detail=f"Node {payload.ip} is already registered."
         )
 
-    if payload.install_key and not payload.public_key:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="public_key is required when install_key is True."
-        )
+    pub_key_to_install = None
+    if payload.install_key:
+        pub_key_to_install = payload.public_key.strip() if payload.public_key else _get_master_public_key()
+        if not pub_key_to_install:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Master public key not found in ~/.ssh/ and not provided. Generate one using ssh-keygen on the master."
+            )
 
     # --- Step 1: Connect with password ---
     try:
@@ -182,12 +198,11 @@ def add_node_with_auth(
 
     try:
         # --- Step 2 (optional): Install public key ---
-        if payload.install_key and payload.public_key:
-            pub_key = payload.public_key.strip()
+        if payload.install_key and pub_key_to_install:
             install_cmd = (
                 "mkdir -p ~/.ssh && "
                 "chmod 700 ~/.ssh && "
-                f"echo '{pub_key}' >> ~/.ssh/authorized_keys && "
+                f"echo '{pub_key_to_install}' >> ~/.ssh/authorized_keys && "
                 "chmod 600 ~/.ssh/authorized_keys"
             )
             stdin, stdout, stderr = client.exec_command(install_cmd)
@@ -204,10 +219,49 @@ def add_node_with_auth(
         gpu_out = stdout_gpu.read().decode().strip()
         gpu_count, gpu_info_list = _parse_gpu_info(gpu_out if gpu_out else None)
 
+        # --- Step 4 (optional): Sync code via Zip + SFTP ---
+        if payload.sync_code and os.path.isdir("worker"):
+            local_zip = f"/tmp/worker_sync_{uuid.uuid4().hex}.zip"
+            try:
+                # Zip local worker/
+                with zipfile.ZipFile(local_zip, "w", zipfile.ZIP_DEFLATED) as zf:
+                    for root_dir, dirs, files in os.walk("worker"):
+                        dirs[:] = [d for d in dirs if d not in ("__pycache__", "runs", ".git")]
+                        for file in files:
+                            if file.endswith(".pyc"): continue
+                            abs_path = os.path.join(root_dir, file)
+                            zf.write(abs_path, abs_path)
+                
+                # SFTP upload
+                remote_zip = f"/tmp/worker_sync_{uuid.uuid4().hex}.zip"
+                sftp = client.open_sftp()
+                sftp.put(local_zip, remote_zip)
+                sftp.close()
+
+                # Extract remotely using python's built-in zipfile (avoids needing `unzip`)
+                extract_cmd = (
+                    "mkdir -p ~/worker && "
+                    f"python3 -m zipfile -e {remote_zip} ~/ && "
+                    f"rm {remote_zip}"
+                )
+                stdin, stdout, stderr = client.exec_command(extract_cmd)
+                stdout.channel.recv_exit_status()
+                err = stderr.read().decode().strip()
+                if err:
+                    print(f"Warning during remote extraction: {err}")
+            except Exception as e:
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"Code sync failed: {e}"
+                )
+            finally:
+                if os.path.exists(local_zip):
+                    os.remove(local_zip)
+
     finally:
         client.close()
 
-    # --- Step 4: Save node (key-based SSH will be used from here on) ---
+    # --- Step 5: Save node ---
     node = Node(
         ip=payload.ip,
         ssh_user=payload.ssh_user,

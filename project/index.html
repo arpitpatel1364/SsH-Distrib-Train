@@ -607,22 +607,22 @@
                   </div>
 
                   <!-- Auth mode toggle -->
-                  <div style="background:var(--bg-muted); border:1px solid var(--border-default); border-radius:var(--radius-sm); padding:12px;">
-                    <label class="flex-row align-center gap-xs text-sm color-secondary" style="cursor:pointer; font-weight:600;">
-                      <input type="checkbox" id="node-install-key-toggle" style="width:16px;height:16px;accent-color:var(--primary);">
-                      Also install SSH public key (passwordless access after this)
-                    </label>
-                    <p class="text-xs color-muted mt-xs" style="margin-left:22px;">If checked, the key will be appended to <code>~/.ssh/authorized_keys</code> on the worker.</p>
-                  </div>
+                  <div style="background:var(--bg-muted); border:1px solid var(--border-default); border-radius:var(--radius-sm); padding:12px; display:flex; flex-direction:column; gap:12px;">
+                    <div>
+                      <label class="flex-row align-center gap-xs text-sm color-secondary" style="cursor:pointer; font-weight:600;">
+                        <input type="checkbox" id="node-install-key-toggle" style="width:16px;height:16px;accent-color:var(--primary);" checked>
+                        Auto-install Master's SSH public key
+                      </label>
+                      <p class="text-xs color-muted mt-xs" style="margin-left:22px;">If checked, the Master's key will automatically be appended to <code>~/.ssh/authorized_keys</code> on the worker for seamless future access (like ssh-copy-id).</p>
+                    </div>
 
-                  <!-- Public key input (shown only when toggle is ON) -->
-                  <div class="form-group hidden" id="node-pubkey-group">
-                    <label class="form-label" for="node-pubkey-input">Master's Public Key</label>
-                    <textarea class="glass-input" id="node-pubkey-input"
-                      rows="4"
-                      placeholder="Paste your public key here, e.g. ssh-ed25519 AAAA... user@host"
-                      style="font-family:var(--font-mono); font-size:11px; resize:vertical; line-height:1.4;"></textarea>
-                    <p class="text-xs color-muted mt-xs">Run <code>cat ~/.ssh/id_ed25519.pub</code> on the master to get your public key.</p>
+                    <div style="border-top:1px solid var(--border-default); padding-top:12px;">
+                      <label class="flex-row align-center gap-xs text-sm color-secondary" style="cursor:pointer; font-weight:600;">
+                        <input type="checkbox" id="node-sync-code-toggle" style="width:16px;height:16px;accent-color:var(--primary);">
+                        Also push worker code automatically
+                      </label>
+                      <p class="text-xs color-muted mt-xs" style="margin-left:22px;">If checked, the orchestrator will instantly zip and upload the <code>worker/</code> directory to this node.</p>
+                    </div>
                   </div>
                   
                   <div id="node-message-error" class="error-message hidden"></div>
@@ -810,9 +810,14 @@
               <div id="ota-status-error" class="error-message hidden"></div>
               <div id="ota-status-success" class="font-semibold text-xs color-success hidden" style="text-align: center;"></div>
               
-              <button class="btn-primary" id="btn-trigger-ota" style="height: 44px; margin-top: 10px;">
-                Sync Worker Code Package
-              </button>
+              <div class="flex-row gap-md" style="margin-top: 10px;">
+                <button class="btn-primary flex-1" id="btn-trigger-ota-sftp" style="height: 44px; background:var(--primary);">
+                  Sync via SFTP (Reliable)
+                </button>
+                <button class="btn-primary flex-1" id="btn-trigger-ota-rsync" style="height: 44px; background:var(--accent);">
+                  Sync via Rsync (Fast Delta)
+                </button>
+              </div>
             </div>
 
             <!-- Manual Package & Download Card -->

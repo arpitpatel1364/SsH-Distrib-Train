@@ -381,8 +381,77 @@ def download_checkpoint(job_id: str):
         raise HTTPException(status_code=404, detail="Checkpoint file not found")
     return FileResponse(checkpoint_path, media_type="application/octet-stream", filename=f"checkpoint_{job_id}.pt")
 
-@router.post("/ota")
-def trigger_ota_sync(
+@router.post("/ota-sftp")
+def trigger_ota_sftp(
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user)
+):
+    active_nodes = db.query(Node).filter(Node.status == "active").all()
+    if not active_nodes:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No active nodes to sync. Please register and activate nodes first."
+        )
+
+    if not os.path.isdir("worker"):
+        raise HTTPException(status_code=500, detail="Local 'worker' directory not found.")
+
+    import uuid
+    import zipfile
+    local_zip = f"/tmp/worker_sync_ota_{uuid.uuid4().hex}.zip"
+    
+    try:
+        # 1. Zip local worker/ directory once
+        with zipfile.ZipFile(local_zip, "w", zipfile.ZIP_DEFLATED) as zf:
+            for root_dir, dirs, files in os.walk("worker"):
+                dirs[:] = [d for d in dirs if d not in ("__pycache__", "runs", ".git")]
+                for file in files:
+                    if file.endswith(".pyc"): continue
+                    abs_path = os.path.join(root_dir, file)
+                    zf.write(abs_path, abs_path)
+
+        failed_nodes = []
+        # 2. Upload and extract to all nodes
+        for node in active_nodes:
+            try:
+                # Use ssh_manager to get an authenticated SFTP session
+                client = ssh_manager._get_client(node.ip, node.ssh_user, node.ssh_port)
+                sftp = client.open_sftp()
+                
+                remote_zip = f"/tmp/worker_sync_{uuid.uuid4().hex}.zip"
+                sftp.put(local_zip, remote_zip)
+                sftp.close()
+
+                # Extract remotely using Python
+                extract_cmd = (
+                    "mkdir -p ~/worker && "
+                    f"python3 -m zipfile -e {remote_zip} ~/ && "
+                    f"rm {remote_zip}"
+                )
+                stdin, stdout, stderr = client.exec_command(extract_cmd)
+                stdout.channel.recv_exit_status()
+                err = stderr.read().decode().strip()
+                if err:
+                    failed_nodes.append(f"{node.ip} (extraction warning: {err})")
+
+            except Exception as e:
+                failed_nodes.append(f"{node.ip} ({str(e)})")
+
+        if failed_nodes:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"SFTP Sync failed for some nodes: {', '.join(failed_nodes)}"
+            )
+
+        return {"status": "success", "detail": "Codebase successfully synced via SFTP to all active nodes."}
+
+    finally:
+        if os.path.exists(local_zip):
+            os.remove(local_zip)
+
+
+@router.post("/ota-rsync")
+def trigger_ota_rsync(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user)
 ):
@@ -397,16 +466,16 @@ def trigger_ota_sync(
     failed_nodes = []
     for node in active_nodes:
         try:
-            # Sync the worker/ directory to the remote node's worker/ directory
+            # Sync the worker/ directory to the remote node's worker/ directory using fast delta-sync
             rsync_cmd = [
-                "rsync", "-az", "-e",
-                f"ssh -p {node.ssh_port} -o StrictHostKeyChecking=no",
+                "rsync", "-avz", "--exclude=__pycache__", "--exclude=.git", "--exclude=runs", "-e",
+                f"ssh -p {node.ssh_port} -o StrictHostKeyChecking=no -o ConnectTimeout=10",
                 "worker/",
-                f"{node.ssh_user}@{node.ip}:Desktop/worker/"
+                f"{node.ssh_user}@{node.ip}:worker/"
             ]
-            res = subprocess.run(rsync_cmd, timeout=15, capture_output=True)
+            res = subprocess.run(rsync_cmd, timeout=30, capture_output=True)
             if res.returncode != 0:
-                error_msg = res.stderr.decode().strip()
+                error_msg = res.stderr.decode().strip() or res.stdout.decode().strip()
                 failed_nodes.append(f"{node.ip} (rsync exit {res.returncode}: {error_msg})")
         except Exception as e:
             failed_nodes.append(f"{node.ip} ({str(e)})")
@@ -414,10 +483,10 @@ def trigger_ota_sync(
     if failed_nodes:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"OTA Sync failed for nodes: {', '.join(failed_nodes)}"
+            detail=f"Rsync failed for nodes: {', '.join(failed_nodes)}"
         )
         
-    return {"status": "success", "detail": "Codebase successfully synced to all active nodes."}
+    return {"status": "success", "detail": "Codebase successfully synced via Rsync to all active nodes."}
 
 
 # ---------------------------------------------------------------------------

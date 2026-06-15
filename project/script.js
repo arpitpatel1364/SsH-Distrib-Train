@@ -82,8 +82,7 @@ const elements = {
   nodePortInput: document.getElementById("node-port-input"),
   nodePasswordInput: document.getElementById("node-password-input"),
   nodeInstallKeyToggle: document.getElementById("node-install-key-toggle"),
-  nodePubkeyGroup: document.getElementById("node-pubkey-group"),
-  nodePubkeyInput: document.getElementById("node-pubkey-input"),
+  nodeSyncCodeToggle: document.getElementById("node-sync-code-toggle"),
   nodeMessageError: document.getElementById("node-message-error"),
   btnSubmitNode: document.getElementById("btn-submit-node"),
   nodesGridTitle: document.getElementById("nodes-grid-title"),
@@ -113,7 +112,8 @@ const elements = {
   historyTableBody: document.getElementById("history-table-body"),
   
   // OTA Trigger
-  btnTriggerOta: document.getElementById("btn-trigger-ota"),
+  btnTriggerOtaSftp: document.getElementById("btn-trigger-ota-sftp"),
+  btnTriggerOtaRsync: document.getElementById("btn-trigger-ota-rsync"),
   otaStatusError: document.getElementById("ota-status-error"),
   otaStatusSuccess: document.getElementById("ota-status-success"),
 
@@ -210,18 +210,6 @@ function setupEventListeners() {
   if (elements.loginForm) elements.loginForm.addEventListener("submit", handleLogin);
   if (elements.addNodeFormReal) elements.addNodeFormReal.addEventListener("submit", handleAddNode);
   if (elements.launchTrainingForm) elements.launchTrainingForm.addEventListener("submit", handleLaunchTraining);
-
-  // SSH key toggle — show/hide pubkey textarea
-  if (elements.nodeInstallKeyToggle) {
-    elements.nodeInstallKeyToggle.addEventListener("change", () => {
-      if (elements.nodeInstallKeyToggle.checked) {
-        elements.nodePubkeyGroup.classList.remove("hidden");
-      } else {
-        elements.nodePubkeyGroup.classList.add("hidden");
-        elements.nodePubkeyInput.value = "";
-      }
-    });
-  }
   
   // Actions
   if (elements.btnRefreshNodes) elements.btnRefreshNodes.addEventListener("click", triggerNodesRefresh);
@@ -230,7 +218,8 @@ function setupEventListeners() {
       elements.logsConsole.innerHTML = "";
     });
   }
-  if (elements.btnTriggerOta) elements.btnTriggerOta.addEventListener("click", triggerOTA);
+  if (elements.btnTriggerOtaSftp) elements.btnTriggerOtaSftp.addEventListener("click", () => triggerOTA("/ota-sftp", elements.btnTriggerOtaSftp));
+  if (elements.btnTriggerOtaRsync) elements.btnTriggerOtaRsync.addEventListener("click", () => triggerOTA("/ota-rsync", elements.btnTriggerOtaRsync));
   if (elements.btnPackageWorker) elements.btnPackageWorker.addEventListener("click", packageWorker);
   
   // Modal buttons
@@ -1092,7 +1081,7 @@ async function handleAddNode(e) {
   const ssh_port    = parseInt(elements.nodePortInput.value.trim(), 10);
   const ssh_password = elements.nodePasswordInput ? elements.nodePasswordInput.value : "";
   const install_key = elements.nodeInstallKeyToggle ? elements.nodeInstallKeyToggle.checked : false;
-  const public_key  = (install_key && elements.nodePubkeyInput) ? elements.nodePubkeyInput.value.trim() : null;
+  const sync_code   = elements.nodeSyncCodeToggle ? elements.nodeSyncCodeToggle.checked : false;
 
   // Validate password
   if (!ssh_password) {
@@ -1103,24 +1092,18 @@ async function handleAddNode(e) {
     return;
   }
 
-  // Validate public key when toggle is on
-  if (install_key && !public_key) {
-    elements.nodeMessageError.textContent = "Please paste your public key, or uncheck the SSH key option.";
-    elements.nodeMessageError.className = "error-message";
-    elements.nodeMessageError.classList.remove("hidden");
-    elements.btnSubmitNode.disabled = false;
-    return;
-  }
-
-  if (install_key) {
+  if (install_key && sync_code) {
+    elements.btnSubmitNode.textContent = "Configuring key & pushing code...";
+  } else if (install_key) {
     elements.btnSubmitNode.textContent = "Connecting & installing SSH key...";
+  } else if (sync_code) {
+    elements.btnSubmitNode.textContent = "Connecting & pushing code...";
   } else {
     elements.btnSubmitNode.textContent = "Verifying connection...";
   }
 
   try {
-    const body = { ip, ssh_user, ssh_port, ssh_password, install_key };
-    if (install_key && public_key) body.public_key = public_key;
+    const body = { ip, ssh_user, ssh_port, ssh_password, install_key, sync_code };
 
     const res = await fetch(`${API_BASE}/nodes/add-with-auth`, {
       method: "POST",
@@ -1136,13 +1119,12 @@ async function handleAddNode(e) {
       // Clear form
       elements.nodeIpInput.value = "";
       if (elements.nodePasswordInput) elements.nodePasswordInput.value = "";
-      if (elements.nodeInstallKeyToggle) elements.nodeInstallKeyToggle.checked = false;
-      if (elements.nodePubkeyGroup) elements.nodePubkeyGroup.classList.add("hidden");
-      if (elements.nodePubkeyInput) elements.nodePubkeyInput.value = "";
-
-      const keyMsg = install_key ? " SSH key installed for passwordless access." : " (password auth)";
+      if (elements.nodeSyncCodeToggle) elements.nodeSyncCodeToggle.checked = false;
+      
+      const keyMsg = install_key ? " Key installed." : " Password auth.";
+      const syncMsg = sync_code ? " Code pushed." : "";
       elements.nodeMessageError.className = "error-message color-success";
-      elements.nodeMessageError.textContent = `Node ${ip} connected & registered.${keyMsg}`;
+      elements.nodeMessageError.textContent = `Node ${ip} registered.${keyMsg}${syncMsg}`;
       elements.nodeMessageError.classList.remove("hidden");
       triggerNodesRefresh();
     } else {
@@ -1355,32 +1337,34 @@ async function fetchJobHistory() {
 }
 
 // H. OTA Update Trigger
-async function triggerOTA() {
+async function triggerOTA(endpoint, btnElement) {
   elements.otaStatusError.classList.add("hidden");
   elements.otaStatusSuccess.classList.add("hidden");
-  elements.btnTriggerOta.disabled = true;
-  elements.btnTriggerOta.textContent = "Deploying files in parallel via SFTP...";
+  
+  const originalText = btnElement.textContent;
+  btnElement.disabled = true;
+  btnElement.textContent = "Deploying files to all nodes...";
   
   try {
-    const res = await fetch(`${API_BASE}/train/ota`, {
+    const res = await fetch(`${API_BASE}/train${endpoint}`, {
       method: "POST",
       headers: { "Authorization": `Bearer ${token}` }
     });
     const data = await res.json();
     
     if (res.ok) {
-      elements.otaStatusSuccess.textContent = "SFTP update complete! Codebase synced to all cluster nodes.";
+      elements.otaStatusSuccess.textContent = data.detail || "Update complete! Codebase synced to all cluster nodes.";
       elements.otaStatusSuccess.classList.remove("hidden");
     } else {
-      elements.otaStatusError.textContent = data.detail || "SFTP transfer failed. Check node connections.";
+      elements.otaStatusError.textContent = data.detail || "Transfer failed. Check node connections.";
       elements.otaStatusError.classList.remove("hidden");
     }
   } catch (err) {
     elements.otaStatusError.textContent = "Error invoking OTA updates on master.";
     elements.otaStatusError.classList.remove("hidden");
   } finally {
-    elements.btnTriggerOta.disabled = false;
-    elements.btnTriggerOta.textContent = "Sync Worker Code Package";
+    btnElement.disabled = false;
+    btnElement.textContent = originalText;
   }
 }
 
