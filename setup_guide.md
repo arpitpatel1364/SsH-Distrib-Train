@@ -1,93 +1,101 @@
-#  Distributed YOLO Cluster End-to-End Setup Guide
+# Cactus Cluster: End-to-End Setup Guide
 
-This guide describes how to configure, deploy, and execute the Distributed YOLOv8 training system across multiple nodes.
-
----
-
-##  Prerequisites & Architecture
-The system consists of:
-1. **Master Orchestrator**: Runs the FastAPI backend (which natively serves the Vanilla JS dashboard). Manages job scheduling, database storage (SQLite), telemetry, and parallel SSH triggers.
-2. **Worker Nodes**: Physical or virtual machine nodes containing GPUs (or CPUs) where `torchrun` executes the DDP training script in parallel.
+This guide describes how to configure, deploy, and execute the Distributed YOLOv8 training system across multiple nodes using our automated deployment tools.
 
 ---
 
-##  Step 1: Master Orchestrator Setup
+## 1. Master Orchestrator Setup
 
-### 1. Install System Dependencies
-Ensure you have Python 3.8+ installed on the master machine (Node.js and npm are no longer required):
+The Master node runs the web dashboard and coordinates all workers.
+
+### 1.1 Install Master Dependencies
+Ensure you have Python 3.8+ installed on the master machine:
 ```bash
 sudo apt update
 sudo apt install -y python3-venv python3-pip sqlite3
 ```
 
-### 2. Configure Virtual Environment & Backend Dependencies
-Navigate to the root workspace directory and run the install script:
+### 1.2 Start the Backend
+Navigate to the root workspace directory and run the FastAPI server:
 ```bash
-cd /home/cactus/Desktop/ssh
-chmod +x scripts/install.sh scripts/run.sh scripts/setup_worker.sh
-./scripts/install.sh
+python3 -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
+
+# Start the orchestrator (runs on http://0.0.0.0:8000)
+uvicorn backend.main:app --host 0.0.0.0 --port 8000
 ```
-This script initializes the local virtual environment and installs:
-* `fastapi` & `uvicorn` (REST & WebSockets)
-* `paramiko` & `cryptography` (Async SSH and SFTP connection handling)
-* `sqlalchemy` (SQLite ORM)
-* `python-jose` & `passlib` (Authentication & Security)
+
+### 1.3 Generate Master SSH Key (Important)
+For the Master to securely control the workers, it needs an SSH keypair. If you don't already have one, generate it now:
+```bash
+ssh-keygen -t ed25519 -N "" -f ~/.ssh/id_ed25519
+```
+*Note: You do **not** need to manually copy this key. The UI dashboard will handle it.*
 
 ---
 
-##  Step 2: Worker Nodes Provisioning
+## 2. Worker Node Provisioning
 
-To enable DDP initialization and DDP-safe checkpoint recovery, each worker node must be prepared to accept parallel execution commands.
+Each machine with GPUs needs the worker agent installed. We provide an automated script that handles the entire setup with zero manual configuration.
 
-### 1. Automated Worker Provisioning
-We provide an automated provisioning script that checks for NVIDIA CUDA drivers, installs system dependencies, enables the SSH daemon, and creates the PyTorch virtual environment.
+### 2.1 Get the Worker Package
+You can get the worker code onto your node in two ways:
+1. **Via UI Download:** Open the Master dashboard, go to the **OTA Sync** tab, and click **Build & Download Worker Package**. Transfer this zip file to your worker via USB or SCP.
+2. **Direct Copy:** Copy the `worker/` directory from the repository to the worker machine.
 
-Copy the `setup_worker.sh` script to **each worker node** and execute it:
+### 2.2 Run the Auto-Installer
+On the worker machine, run the setup script:
 ```bash
-# On each Worker node:
-./setup_worker.sh
+cd worker
+chmod +x install.sh
+./install.sh
 ```
-
-### 2. Configure Passwordless SSH Access
-The master orchestrator connects to workers using SSH keys. Generate an SSH keypair on the master (if not already done) and copy the public key to all worker nodes:
-```bash
-# On Master:
-ssh-keygen -t rsa -b 4096 -N "" -f ~/.ssh/id_rsa
-ssh-copy-id -p <ssh_port> <user>@<worker_ip>
-```
-*Verify that you can login from the master to each worker node via `ssh <user>@<worker_ip>` without being prompted for a password.*
-
-### 3. Data Sync (Optional)
-Ensure the dataset YAML and training images are stored at the same absolute path on all worker nodes (e.g. `~/datasets/coco128/` or as defined in the job scheduler dataset config).
+**What this script does:**
+1. Installs OS packages (`openssh-server`, Python).
+2. Starts the SSH Daemon.
+3. Builds a Python virtual environment and installs PyTorch (CUDA) + Ultralytics.
+4. Installs a background systemd service called `cactus-worker`.
 
 ---
 
-## ⚡ Step 3: Run the Orchestrator
+## 3. Registering Nodes via Dashboard
 
-To start the unified FastAPI backend server and dashboard (listening on port `8000`), run the launch script from the root workspace:
-```bash
-./scripts/run.sh
-```
+1. **Access the UI:** Open a browser and go to `http://<MASTER_IP>:8000`.
+2. **Login:** Use username `admin` and password `admin123`.
+3. **Go to Cluster Nodes:**
+   - Enter the Worker's IP Address.
+   - Enter the Worker's SSH Password.
+   - Check **"Also install SSH public key"** and paste the Master's public key (run `cat ~/.ssh/id_ed25519.pub` on the Master to get it).
+   - Click **Register Node**.
+
+The Master will connect using the password, securely install the key for future passwordless access, scan the GPU hardware, and add it to the cluster.
 
 ---
 
-## Step 4: Step-by-Step Training Execution Workflow
+## 4. Service Management & OTA Updates
 
-1. **Access the Dashboard**: Open your browser and navigate to `http://localhost:8000`.
-2. **Log In**: Authenticate using the default admin account:
-   * **Username**: `admin`
-   * **Password**: `admin123`
-3. **Register Worker Nodes**:
-   * Under the **Add Cluster Node** form, enter the worker node's IP address, SSH user, and SSH port.
-   * Click **Add Node**. The orchestrator will run synchronous SSH pre-flight tests and hardware capability detection. Once complete, the node card will turn green showing "CONNECTED".
-4. **Deploy & Launch Training**:
-   * Verify your targeted IPs are listed in the Job Scheduler.
-   * Select the YOLO model version (e.g. `yolov8n.pt`).
-   * Provide the dataset configuration path.
-   * Configure hyperparameters (Epochs, Batch Size, Learning Rate).
-   * Click **Deploy & Launch DDP**. The orchestrator will:
-     1. SFTP the local worker code package to all nodes in parallel.
-     2. Programmatically detect active network routing interfaces (`NCCL_SOCKET_IFNAME`) on each machine.
-     3. Select the best matching cluster backend (`nccl` if all GPUs, `gloo` if any CPUs are involved).
-     4. Spin up concurrent DDP workers using `torchrun`.
-     5. Scrape epoch metrics and live GPU telemetry in real-time, displaying them on the dashboard curves.
+### Starting the Worker Agent
+Once registered, click the **▶ Start Worker** button on the node's card in the dashboard. The master will automatically send the orchestrator URL to the worker and start the `cactus-worker` systemd service in the background. 
+
+### Keeping Workers Updated (OTA)
+If you update the worker code on the Master, you don't need to manually copy it again:
+- Go to the **OTA Sync** tab.
+- Click **Sync Worker Code Package**.
+- The Master will automatically SFTP the new codebase to all registered worker nodes in parallel.
+
+---
+
+## 5. Launching Distributed Training
+
+1. Navigate to the **Launch Training** tab.
+2. Select the YOLO model version (e.g. `yolov8n.pt` for nano, `yolov8x.pt` for extra-large).
+3. Set your dataset path (must exist on all nodes at the same location).
+4. Configure Hyperparameters (Epochs, Batch Size, LR).
+5. Click **Launch DDP Cluster Job**.
+
+The Orchestrator will:
+1. Ensure all workers are updated.
+2. Determine the optimal communication backend (`nccl` for NVIDIA GPUs, `gloo` for CPUs).
+3. Spawn `torchrun` distributed processes across the cluster.
+4. Stream live metrics (GPU usage, temperatures, loss, mAP) back to the dashboard in real-time.
