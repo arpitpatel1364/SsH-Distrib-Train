@@ -36,16 +36,15 @@ Start, stop, and restart the background Python worker agent running on remote no
 
 ### System Architecture
 
-1. **Master Node (Backend):**
-   - **Framework:** Python FastAPI.
-   - **Database:** SQLite (`cluster.db`) for node metrics and job history.
-   - **SSH Manager:** Built-in `paramiko` connection pooling for issuing commands to workers.
-   - **UI:** Single-page Vanilla JS/HTML/CSS dashboard served directly from the root path.
+![System Architecture Diagram](architecture.png)
 
-2. **Worker Nodes:**
-   - **Agent:** A lightweight `worker.py` script running as a background `systemd` service.
-   - **Hardware Check:** Relies on NVIDIA drivers and PyTorch CUDA tensors. Falls back to CPU if no GPU is found.
-   - **Communication:** Maintains a bi-directional heartbeat with the Master via HTTP POST requests, sending back metrics and job status.
+### Component Breakdown
+
+- **Master Node (FastAPI):** Central orchestrator that manages SQLite records, distributes code (OTA) over SSH, delegates jobs, and streams live websockets.
+
+- **Worker Agents:** Lightweight daemons running on edge nodes that report hardware telemetry, pull jobs from the queue, and stream logs.
+
+- **torchrun Trainer:** PyTorch DDP scripts that coordinate peer-to-peer (via NCCL/Gloo) to execute distributed YOLOv8 workloads.
 
 ---
 
