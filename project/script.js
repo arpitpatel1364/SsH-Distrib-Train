@@ -111,11 +111,20 @@ const elements = {
   // History table
   historyTableBody: document.getElementById("history-table-body"),
   
-  // OTA Trigger
-  btnTriggerOtaSftp: document.getElementById("btn-trigger-ota-sftp"),
-  btnTriggerOtaRsync: document.getElementById("btn-trigger-ota-rsync"),
-  otaStatusError: document.getElementById("ota-status-error"),
-  otaStatusSuccess: document.getElementById("ota-status-success"),
+  // OTA Page
+  otaNodesGrid: document.getElementById("ota-nodes-grid"),
+  otaDefaultRemotePath: document.getElementById("ota-default-remote-path"),
+  otaLocalDir: document.getElementById("ota-local-dir"),
+  otaGlobalFeedback: document.getElementById("ota-global-feedback"),
+  btnOtaDeployAll: document.getElementById("btn-ota-deploy-all"),
+  btnOtaSyncAll: document.getElementById("btn-ota-sync-all"),
+  btnOtaValidate: document.getElementById("btn-ota-validate"),
+  btnOtaRefreshList: document.getElementById("btn-ota-refresh-list"),
+  otaLogModal: document.getElementById("ota-log-modal"),
+  otaLogBody: document.getElementById("ota-log-body"),
+  otaLogModalTitle: document.getElementById("ota-log-modal-title"),
+  otaLogModalSubtitle: document.getElementById("ota-log-modal-subtitle"),
+  btnCloseOtaLog: document.getElementById("btn-close-ota-log"),
 
   // Package Worker
   btnPackageWorker: document.getElementById("btn-package-worker"),
@@ -194,9 +203,8 @@ function setupNavigation() {
       elements.pageTitle.textContent = title;
       
       // Hook special initial fetches
-      if (targetView === "history") {
-        fetchJobHistory();
-      }
+      if (targetView === "history") fetchJobHistory();
+      if (targetView === "ota") loadOtaNodes();
     });
   });
 }
@@ -218,8 +226,12 @@ function setupEventListeners() {
       elements.logsConsole.innerHTML = "";
     });
   }
-  if (elements.btnTriggerOtaSftp) elements.btnTriggerOtaSftp.addEventListener("click", () => triggerOTA("/ota-sftp", elements.btnTriggerOtaSftp));
-  if (elements.btnTriggerOtaRsync) elements.btnTriggerOtaRsync.addEventListener("click", () => triggerOTA("/ota-rsync", elements.btnTriggerOtaRsync));
+  // OTA bulk buttons
+  if (elements.btnOtaDeployAll) elements.btnOtaDeployAll.addEventListener("click", otaDeployAll);
+  if (elements.btnOtaSyncAll)   elements.btnOtaSyncAll.addEventListener("click", otaSyncAll);
+  if (elements.btnOtaValidate)  elements.btnOtaValidate.addEventListener("click", otaValidatePaths);
+  if (elements.btnOtaRefreshList) elements.btnOtaRefreshList.addEventListener("click", loadOtaNodes);
+  if (elements.btnCloseOtaLog)  elements.btnCloseOtaLog.addEventListener("click", closeOtaLogModal);
   if (elements.btnPackageWorker) elements.btnPackageWorker.addEventListener("click", packageWorker);
   
   // Modal buttons
@@ -1069,6 +1081,12 @@ function appendLogsToConsole(logLines) {
 
 // --- 16. API CALL OPERATIONS ---
 
+// Helper: show/hide remote path input when SCP checkbox is toggled
+window.toggleScpPathInput = function(checkbox) {
+  const wrapper = document.getElementById("node-scp-path-wrapper");
+  if (wrapper) wrapper.style.display = checkbox.checked ? "block" : "none";
+};
+
 // A. Node registration
 async function handleAddNode(e) {
   e.preventDefault();
@@ -1076,14 +1094,14 @@ async function handleAddNode(e) {
   elements.nodeMessageError.className = "error-message hidden";
   elements.btnSubmitNode.disabled = true;
 
-  const ip          = elements.nodeIpInput.value.trim();
-  const ssh_user    = elements.nodeUserInput.value.trim();
-  const ssh_port    = parseInt(elements.nodePortInput.value.trim(), 10);
+  const ip           = elements.nodeIpInput.value.trim();
+  const ssh_user     = elements.nodeUserInput.value.trim();
+  const ssh_port     = parseInt(elements.nodePortInput.value.trim(), 10);
   const ssh_password = elements.nodePasswordInput ? elements.nodePasswordInput.value : "";
-  const install_key = elements.nodeInstallKeyToggle ? elements.nodeInstallKeyToggle.checked : false;
-  const sync_code   = elements.nodeSyncCodeToggle ? elements.nodeSyncCodeToggle.checked : false;
+  const install_key  = elements.nodeInstallKeyToggle ? elements.nodeInstallKeyToggle.checked : false;
+  const scp_deploy   = document.getElementById("node-scp-deploy-toggle")?.checked || false;
+  const scp_path     = document.getElementById("node-scp-remote-path")?.value.trim() || "";
 
-  // Validate password
   if (!ssh_password) {
     elements.nodeMessageError.textContent = "SSH Password is required.";
     elements.nodeMessageError.className = "error-message";
@@ -1092,46 +1110,77 @@ async function handleAddNode(e) {
     return;
   }
 
-  if (install_key && sync_code) {
-    elements.btnSubmitNode.textContent = "Configuring key & pushing code...";
-  } else if (install_key) {
-    elements.btnSubmitNode.textContent = "Connecting & installing SSH key...";
-  } else if (sync_code) {
-    elements.btnSubmitNode.textContent = "Connecting & pushing code...";
-  } else {
-    elements.btnSubmitNode.textContent = "Verifying connection...";
+  if (scp_deploy && !scp_path) {
+    elements.nodeMessageError.textContent = "Please enter the Remote Destination Path for SCP deploy.";
+    elements.nodeMessageError.className = "error-message";
+    elements.nodeMessageError.classList.remove("hidden");
+    elements.btnSubmitNode.disabled = false;
+    return;
   }
 
-  try {
-    const body = { ip, ssh_user, ssh_port, ssh_password, install_key, sync_code };
+  elements.btnSubmitNode.textContent = install_key ? "Connecting & installing SSH key..." : "Verifying connection...";
 
+  try {
+    // Step 1: Register the node
+    const body = { ip, ssh_user, ssh_port, ssh_password, install_key, sync_code: false };
     const res = await fetch(`${API_BASE}/nodes/add-with-auth`, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Authorization": `Bearer ${token}`
-      },
+      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
       body: JSON.stringify(body)
     });
     const data = await res.json();
 
-    if (res.ok) {
-      // Clear form
-      elements.nodeIpInput.value = "";
-      if (elements.nodePasswordInput) elements.nodePasswordInput.value = "";
-      if (elements.nodeSyncCodeToggle) elements.nodeSyncCodeToggle.checked = false;
-      
-      const keyMsg = install_key ? " Key installed." : " Password auth.";
-      const syncMsg = sync_code ? " Code pushed." : "";
-      elements.nodeMessageError.className = "error-message color-success";
-      elements.nodeMessageError.textContent = `Node ${ip} registered.${keyMsg}${syncMsg}`;
-      elements.nodeMessageError.classList.remove("hidden");
-      triggerNodesRefresh();
-    } else {
+    if (!res.ok) {
       elements.nodeMessageError.className = "error-message";
       elements.nodeMessageError.textContent = data.detail || "Registration failed. Check credentials.";
       elements.nodeMessageError.classList.remove("hidden");
+      return;
     }
+
+    const registeredNodeId = data.id;
+    const keyMsg = install_key ? " SSH key installed." : "";
+
+    // Step 2 (optional): SCP deploy worker/ folder immediately
+    if (scp_deploy && registeredNodeId) {
+      elements.btnSubmitNode.textContent = "Deploying worker/ via SCP...";
+      elements.nodeMessageError.className = "error-message color-success";
+      elements.nodeMessageError.textContent = `Node ${ip} registered.${keyMsg} Starting SCP deploy…`;
+      elements.nodeMessageError.classList.remove("hidden");
+
+      try {
+        const scpRes = await fetch(`${API_BASE}/ota/nodes/${registeredNodeId}/scp-deploy`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
+          body: JSON.stringify({ remote_path: scp_path, local_dir: "worker" })
+        });
+        const scpData = await scpRes.json();
+        if (scpRes.ok) {
+          elements.nodeMessageError.textContent = `✅ Node ${ip} registered${keyMsg} + worker/ deployed to ${scp_path}. Use Rsync on OTA page for future updates.`;
+        } else {
+          elements.nodeMessageError.textContent = `Node ${ip} registered${keyMsg}, but SCP deploy failed: ${scpData.detail}. Go to OTA page to retry.`;
+          elements.nodeMessageError.className = "error-message";
+        }
+      } catch (scpErr) {
+        elements.nodeMessageError.textContent = `Node ${ip} registered${keyMsg}, but SCP deploy error: ${scpErr.message}. Go to OTA page to retry.`;
+        elements.nodeMessageError.className = "error-message";
+      }
+    } else {
+      elements.nodeMessageError.className = "error-message color-success";
+      elements.nodeMessageError.textContent = `✅ Node ${ip} registered.${keyMsg} Use the OTA page to deploy the worker/ code.`;
+    }
+
+    elements.nodeMessageError.classList.remove("hidden");
+
+    // Reset form
+    elements.nodeIpInput.value = "";
+    if (elements.nodePasswordInput) elements.nodePasswordInput.value = "";
+    const scpToggle = document.getElementById("node-scp-deploy-toggle");
+    if (scpToggle) { scpToggle.checked = false; toggleScpPathInput(scpToggle); }
+    const scpPathInput = document.getElementById("node-scp-remote-path");
+    if (scpPathInput) scpPathInput.value = "";
+
+    triggerNodesRefresh();
+
   } catch (err) {
     elements.nodeMessageError.className = "error-message";
     elements.nodeMessageError.textContent = "Error communicating with backend.";
@@ -1141,6 +1190,7 @@ async function handleAddNode(e) {
     elements.btnSubmitNode.textContent = "Register Node";
   }
 }
+
 
 // B. Global Node Health Refresh
 async function triggerNodesRefresh() {
@@ -1336,36 +1386,301 @@ async function fetchJobHistory() {
   }
 }
 
-// H. OTA Update Trigger
-async function triggerOTA(endpoint, btnElement) {
-  elements.otaStatusError.classList.add("hidden");
-  elements.otaStatusSuccess.classList.add("hidden");
-  
-  const originalText = btnElement.textContent;
-  btnElement.disabled = true;
-  btnElement.textContent = "Deploying files to all nodes...";
-  
+// ═══════════════════════════════════════════════════════════════
+// H. OTA MANAGEMENT PAGE — per-node SCP/Rsync deployment system
+// ═══════════════════════════════════════════════════════════════
+
+let otaNodes = [];  // cached list from /ota/nodes
+
+// Load node list and render OTA cards
+async function loadOtaNodes() {
+  if (!elements.otaNodesGrid) return;
+  elements.otaNodesGrid.innerHTML = `<div class="color-muted text-sm p-md">Loading deployment status…</div>`;
   try {
-    const res = await fetch(`${API_BASE}/train${endpoint}`, {
+    const res = await fetch(`${API_BASE}/ota/nodes`, {
+      headers: { "Authorization": `Bearer ${token}` }
+    });
+    if (!res.ok) throw new Error("HTTP " + res.status);
+    otaNodes = await res.json();
+    renderOtaCards();
+  } catch (e) {
+    elements.otaNodesGrid.innerHTML = `<div class="color-danger text-sm p-md">Failed to load OTA status: ${e.message}</div>`;
+  }
+}
+
+function otaStatusBadge(status) {
+  const icons = { never: "○", pending: "◷", success: "✓", failed: "✗" };
+  return `<span class="ota-status-badge ota-status-${status}">${icons[status] || "○"} ${status}</span>`;
+}
+
+function renderOtaCards() {
+  if (!elements.otaNodesGrid) return;
+  elements.otaNodesGrid.innerHTML = "";
+
+  if (otaNodes.length === 0) {
+    elements.otaNodesGrid.innerHTML = `
+      <div class="ota-node-card" style="text-align:center; color:var(--text-muted);">
+        No nodes registered. Add nodes in the Cluster Nodes view first.
+      </div>`;
+    return;
+  }
+
+  otaNodes.forEach(node => {
+    const isDeployed = node.deploy_status === "success";
+    const lastSync = node.last_sync_time
+      ? new Date(node.last_sync_time).toLocaleString()
+      : "Never";
+    const remotePath = node.remote_deploy_path || "";
+
+    const card = document.createElement("div");
+    card.className = "ota-node-card";
+    card.id = `ota-card-${node.id}`;
+    card.innerHTML = `
+      <div class="node-header">
+        <div class="flex-col">
+          <span class="font-semibold color-primary" style="font-size:var(--text-md);">${node.ip}</span>
+          <span class="text-xs color-muted">${node.ssh_user}@${node.ip}:${node.ssh_port}</span>
+        </div>
+        <div class="flex-row align-center gap-sm">
+          ${otaStatusBadge(node.deploy_status || "never")}
+          <span class="badge ${node.status === 'active' ? 'badge-active' : 'badge-offline'}" style="font-size:10px;">${node.status}</span>
+        </div>
+      </div>
+
+      <div class="ota-meta-row">
+        <span><strong>Last Sync:</strong> ${lastSync}</span>
+        <span><strong>Deploy Status:</strong> ${node.deploy_status || "never"}</span>
+      </div>
+
+      <div class="ota-path-row">
+        <label class="form-label" style="white-space:nowrap; font-size:var(--text-xs); min-width:110px;">Remote Path</label>
+        <input class="glass-input ota-path-input" type="text"
+          id="ota-path-${node.id}"
+          value="${remotePath}"
+          placeholder="/home/${node.ssh_user}/worker">
+      </div>
+
+      <div class="ota-node-actions">
+        ${!isDeployed ? `
+        <button class="btn-primary" id="btn-scp-${node.id}"
+          onclick="otaSCPDeploy(${node.id})"
+          style="padding:7px 14px; font-size:var(--text-xs);">
+          🚀 SCP Initial Deploy
+        </button>` : ""}
+        <button class="btn-primary" id="btn-rsync-${node.id}"
+          onclick="otaRsyncSync(${node.id})"
+          style="padding:7px 14px; font-size:var(--text-xs); background:var(--accent);">
+          🔄 Rsync Sync
+        </button>
+        <button class="btn-secondary" id="btn-logs-${node.id}"
+          onclick="openOtaLogModal(${node.id}, '${node.ip}')"
+          style="padding:7px 14px; font-size:var(--text-xs);">
+          📋 View Logs
+        </button>
+      </div>
+
+      <div id="ota-card-msg-${node.id}" style="display:none; font-size:var(--text-xs); padding:6px 0;"></div>
+    `;
+    elements.otaNodesGrid.appendChild(card);
+  });
+}
+
+function otaCardMsg(nodeId, msg, isError) {
+  const el = document.getElementById(`ota-card-msg-${nodeId}`);
+  if (!el) return;
+  el.textContent = msg;
+  el.style.display = msg ? "block" : "none";
+  el.style.color = isError ? "var(--danger)" : "var(--success)";
+}
+
+// Per-node SCP initial deploy
+window.otaSCPDeploy = async function(nodeId) {
+  const pathInput = document.getElementById(`ota-path-${nodeId}`);
+  const remotePath = pathInput ? pathInput.value.trim() : "";
+  if (!remotePath) {
+    otaCardMsg(nodeId, "Please enter the remote deployment path first.", true);
+    return;
+  }
+  const localDir = elements.otaLocalDir ? elements.otaLocalDir.value.trim() || "worker" : "worker";
+  const btn = document.getElementById(`btn-scp-${nodeId}`);
+  if (btn) { btn.disabled = true; btn.textContent = "Deploying…"; }
+  otaCardMsg(nodeId, "SCP deployment in progress…", false);
+
+  try {
+    const res = await fetch(`${API_BASE}/ota/nodes/${nodeId}/scp-deploy`, {
       method: "POST",
+      headers: { "Authorization": `Bearer ${token}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ remote_path: remotePath, local_dir: localDir })
+    });
+    const data = await res.json();
+    if (res.ok) {
+      otaCardMsg(nodeId, `✅ Deployed to ${data.remote_path}`, false);
+      loadOtaNodes();
+    } else {
+      otaCardMsg(nodeId, `❌ ${data.detail}`, true);
+      if (btn) { btn.disabled = false; btn.textContent = "🚀 SCP Initial Deploy"; }
+    }
+  } catch (e) {
+    otaCardMsg(nodeId, `❌ Network error: ${e.message}`, true);
+    if (btn) { btn.disabled = false; btn.textContent = "🚀 SCP Initial Deploy"; }
+  }
+};
+
+// Per-node Rsync sync
+window.otaRsyncSync = async function(nodeId) {
+  const pathInput = document.getElementById(`ota-path-${nodeId}`);
+  const remotePath = pathInput ? pathInput.value.trim() : "";
+  // If user edited the path field, save it first
+  const node = otaNodes.find(n => n.id === nodeId);
+  const localDir = elements.otaLocalDir ? elements.otaLocalDir.value.trim() || "worker" : "worker";
+
+  const btn = document.getElementById(`btn-rsync-${nodeId}`);
+  if (btn) { btn.disabled = true; btn.textContent = "Syncing…"; }
+  otaCardMsg(nodeId, "Rsync in progress…", false);
+
+  // If path differs from saved, do an SCP first (first-time)
+  if (!node || !node.remote_deploy_path) {
+    if (!remotePath) {
+      otaCardMsg(nodeId, "Set a remote path before syncing.", true);
+      if (btn) { btn.disabled = false; btn.textContent = "🔄 Rsync Sync"; }
+      return;
+    }
+    // Auto-save path via SCP deploy first
+    await otaSCPDeploy(nodeId);
+    if (btn) { btn.disabled = false; btn.textContent = "🔄 Rsync Sync"; }
+    return;
+  }
+
+  try {
+    const res = await fetch(`${API_BASE}/ota/nodes/${nodeId}/rsync-sync`, {
+      method: "POST",
+      headers: { "Authorization": `Bearer ${token}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ local_dir: localDir })
+    });
+    const data = await res.json();
+    if (res.ok) {
+      otaCardMsg(nodeId, `✅ Rsync complete — ${data.remote_path}`, false);
+      loadOtaNodes();
+    } else {
+      otaCardMsg(nodeId, `❌ ${data.detail}`, true);
+    }
+  } catch (e) {
+    otaCardMsg(nodeId, `❌ Network error: ${e.message}`, true);
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = "🔄 Rsync Sync"; }
+  }
+};
+
+// Bulk: deploy all new nodes
+async function otaDeployAll() {
+  const remotePath = elements.otaDefaultRemotePath ? elements.otaDefaultRemotePath.value.trim() : "";
+  if (!remotePath) {
+    showOtaGlobalFeedback("Please enter a default remote path before bulk deploying.", true);
+    return;
+  }
+  const localDir = elements.otaLocalDir ? elements.otaLocalDir.value.trim() || "worker" : "worker";
+  const btn = elements.btnOtaDeployAll;
+  if (btn) { btn.disabled = true; btn.textContent = "Deploying…"; }
+  showOtaGlobalFeedback("Deploying to all new nodes via SCP…", false);
+
+  try {
+    const res = await fetch(`${API_BASE}/ota/deploy-all`, {
+      method: "POST",
+      headers: { "Authorization": `Bearer ${token}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ remote_path: remotePath, local_dir: localDir })
+    });
+    const data = await res.json();
+    showOtaGlobalFeedback(data.detail || "Bulk deploy complete.", data.status === "partial");
+    loadOtaNodes();
+  } catch (e) {
+    showOtaGlobalFeedback(`Error: ${e.message}`, true);
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = "🚀 Deploy All New Nodes (SCP)"; }
+  }
+}
+
+// Bulk: sync all deployed nodes
+async function otaSyncAll() {
+  const localDir = elements.otaLocalDir ? elements.otaLocalDir.value.trim() || "worker" : "worker";
+  const btn = elements.btnOtaSyncAll;
+  if (btn) { btn.disabled = true; btn.textContent = "Syncing…"; }
+  showOtaGlobalFeedback("Rsyncing all deployed nodes…", false);
+
+  try {
+    const res = await fetch(`${API_BASE}/ota/sync-all`, {
+      method: "POST",
+      headers: { "Authorization": `Bearer ${token}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ local_dir: localDir })
+    });
+    const data = await res.json();
+    showOtaGlobalFeedback(data.detail || "Sync complete.", data.status === "partial");
+    loadOtaNodes();
+  } catch (e) {
+    showOtaGlobalFeedback(`Error: ${e.message}`, true);
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = "🔄 Sync All Nodes (Rsync)"; }
+  }
+}
+
+// Validate paths on all deployed nodes
+async function otaValidatePaths() {
+  const btn = elements.btnOtaValidate;
+  if (btn) { btn.disabled = true; btn.textContent = "Validating…"; }
+  showOtaGlobalFeedback("Validating remote paths…", false);
+
+  try {
+    const res = await fetch(`${API_BASE}/ota/validate-paths`, {
+      method: "POST",
+      headers: { "Authorization": `Bearer ${token}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ node_ids: null })
+    });
+    const data = await res.json();
+    const results = data.results || [];
+    if (results.length === 0) {
+      showOtaGlobalFeedback("No nodes with configured paths.", false);
+    } else {
+      const summary = results.map(r => `${r.ip}: ${r.status}`).join(" | ");
+      const hasInvalid = results.some(r => r.status !== "valid");
+      showOtaGlobalFeedback(`Path validation: ${summary}`, hasInvalid);
+    }
+  } catch (e) {
+    showOtaGlobalFeedback(`Error: ${e.message}`, true);
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = "✅ Validate Paths"; }
+  }
+}
+
+function showOtaGlobalFeedback(msg, isError) {
+  const el = elements.otaGlobalFeedback;
+  if (!el) return;
+  el.textContent = msg;
+  el.className = `ota-global-feedback show ${isError ? "error" : "success"}`;
+  setTimeout(() => { el.className = "ota-global-feedback"; }, 6000);
+}
+
+// Log Modal
+window.openOtaLogModal = async function(nodeId, nodeIp) {
+  if (!elements.otaLogModal) return;
+  elements.otaLogModalTitle.textContent = `Deployment Logs — Node ${nodeIp}`;
+  elements.otaLogModalSubtitle.textContent = `Node ID: ${nodeId}`;
+  elements.otaLogBody.textContent = "Loading…";
+  elements.otaLogModal.classList.add("open");
+
+  try {
+    const res = await fetch(`${API_BASE}/ota/nodes/${nodeId}/logs`, {
       headers: { "Authorization": `Bearer ${token}` }
     });
     const data = await res.json();
-    
-    if (res.ok) {
-      elements.otaStatusSuccess.textContent = data.detail || "Update complete! Codebase synced to all cluster nodes.";
-      elements.otaStatusSuccess.classList.remove("hidden");
-    } else {
-      elements.otaStatusError.textContent = data.detail || "Transfer failed. Check node connections.";
-      elements.otaStatusError.classList.remove("hidden");
-    }
-  } catch (err) {
-    elements.otaStatusError.textContent = "Error invoking OTA updates on master.";
-    elements.otaStatusError.classList.remove("hidden");
-  } finally {
-    btnElement.disabled = false;
-    btnElement.textContent = originalText;
+    const logs = data.logs || [];
+    elements.otaLogBody.textContent = logs.length > 0 ? logs.join("\n") : "No deployment logs recorded yet.";
+    elements.otaLogBody.scrollTop = elements.otaLogBody.scrollHeight;
+  } catch (e) {
+    elements.otaLogBody.textContent = `Error loading logs: ${e.message}`;
   }
+};
+
+function closeOtaLogModal() {
+  if (elements.otaLogModal) elements.otaLogModal.classList.remove("open");
 }
 
 // I. Manual Worker Package Builder & Downloader

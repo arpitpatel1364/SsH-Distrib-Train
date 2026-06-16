@@ -20,6 +20,10 @@ class Node(Base):
     gpu_count = Column(Integer, default=0)
     gpu_info = Column(String, default="[]")      # JSON array of GPU names
     last_seen = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    # OTA deployment tracking
+    remote_deploy_path = Column(String, nullable=True)              # e.g. /home/user/worker
+    deploy_status = Column(String, default="never")                 # never, pending, success, failed
+    last_sync_time = Column(DateTime, nullable=True)                # last successful rsync
     metrics = relationship("NodeMetric", back_populates="node", cascade="all, delete-orphan")
 
 class NodeMetric(Base):

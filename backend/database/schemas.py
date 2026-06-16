@@ -38,6 +38,22 @@ class NodeResponse(NodeBase):
     gpu_count: int
     gpu_info: str
     last_seen: datetime
+    remote_deploy_path: Optional[str] = None
+    deploy_status: str = "never"
+    last_sync_time: Optional[datetime] = None
+    class Config:
+        from_attributes = True
+
+class NodeOTAStatus(BaseModel):
+    """Rich OTA view for the OTA management page."""
+    id: int
+    ip: str
+    ssh_user: str
+    ssh_port: int
+    status: str
+    remote_deploy_path: Optional[str] = None
+    deploy_status: str = "never"
+    last_sync_time: Optional[datetime] = None
     class Config:
         from_attributes = True
 

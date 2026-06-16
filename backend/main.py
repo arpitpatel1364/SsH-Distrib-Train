@@ -4,6 +4,7 @@ from backend.database.db import init_db, SessionLocal
 from backend.database.models import User
 from backend.auth.security import get_password_hash
 from backend.api import nodes, training, monitoring, websockets
+from backend.api import ota as ota_api
 import os
 
 app = FastAPI(title="Enterprise Distributed YOLO Cluster Management Platform")
@@ -43,6 +44,7 @@ app.include_router(websockets.router)
 app.include_router(nodes.router)
 app.include_router(training.router)
 app.include_router(monitoring.router)
+app.include_router(ota_api.router)
 from backend.auth import router as auth_router
 app.include_router(auth_router.router)
 

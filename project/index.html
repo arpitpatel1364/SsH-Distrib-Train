@@ -618,10 +618,16 @@
 
                     <div style="border-top:1px solid var(--border-default); padding-top:12px;">
                       <label class="flex-row align-center gap-xs text-sm color-secondary" style="cursor:pointer; font-weight:600;">
-                        <input type="checkbox" id="node-sync-code-toggle" style="width:16px;height:16px;accent-color:var(--primary);">
-                        Also push worker code automatically
+                        <input type="checkbox" id="node-scp-deploy-toggle" style="width:16px;height:16px;accent-color:var(--primary);" onchange="toggleScpPathInput(this)">
+                        Want to add worker code file on this node via SCP ?
                       </label>
-                      <p class="text-xs color-muted mt-xs" style="margin-left:22px;">If checked, the orchestrator will instantly zip and upload the <code>worker/</code> directory to this node.</p>
+                      <p class="text-xs color-muted mt-xs" style="margin-left:22px;">If checked, the <code>worker/</code> folder will be copied immediately after registration. Use <strong>Rsync</strong> on the OTA page for future updates.</p>
+                      <div id="node-scp-path-wrapper" style="display:none; margin-top:10px; margin-left:22px;">
+                        <label class="form-label" style="font-size:var(--text-xs);">Remote Destination Path</label>
+                        <input class="glass-input" type="text" id="node-scp-remote-path"
+                          placeholder="e.g. /home/ubuntu/worker or ~/worker"
+                          style="font-family:var(--font-mono); font-size:var(--text-xs);">
+                      </div>
                     </div>
                   </div>
                   
@@ -794,52 +800,224 @@
           </div>
         </div>
 
+        <!-- SECTION 7: OTA MANAGEMENT PAGE -->
         <div id="view-ota" class="view-section hidden">
-          <div class="flex-col gap-lg" style="max-width: 600px;">
+          <style>
+            .ota-bulk-bar {
+              display: flex;
+              flex-wrap: wrap;
+              gap: 10px;
+              align-items: center;
+              background: var(--bg-surface);
+              border: 1px solid var(--border-default);
+              border-radius: var(--radius-md);
+              padding: 16px 20px;
+              margin-bottom: 24px;
+            }
+            .ota-bulk-bar .bulk-title {
+              font-size: var(--text-sm);
+              font-weight: 700;
+              color: var(--text-primary);
+              flex: 1;
+              min-width: 140px;
+            }
+            .ota-node-card {
+              background: var(--bg-surface);
+              border: 1px solid var(--border-default);
+              border-radius: var(--radius-md);
+              padding: 20px;
+              display: flex;
+              flex-direction: column;
+              gap: 14px;
+              transition: box-shadow 0.15s;
+            }
+            .ota-node-card:hover {
+              box-shadow: var(--shadow-md);
+            }
+            .ota-node-card .node-header {
+              display: flex;
+              justify-content: space-between;
+              align-items: flex-start;
+              gap: 12px;
+            }
+            .ota-path-row {
+              display: flex;
+              align-items: center;
+              gap: 8px;
+            }
+            .ota-path-input {
+              flex: 1;
+              font-family: var(--font-mono);
+              font-size: var(--text-xs);
+            }
+            .ota-node-actions {
+              display: flex;
+              flex-wrap: wrap;
+              gap: 8px;
+            }
+            .ota-status-badge {
+              display: inline-flex;
+              align-items: center;
+              gap: 5px;
+              padding: 3px 10px;
+              border-radius: var(--radius-pill);
+              font-size: 11px;
+              font-weight: 600;
+              letter-spacing: 0.4px;
+              text-transform: uppercase;
+            }
+            .ota-status-never   { background: rgba(100,100,100,0.18); color: var(--text-muted); }
+            .ota-status-pending { background: var(--status-busy-dim); color: var(--warning); }
+            .ota-status-success { background: var(--status-online-dim); color: var(--success); }
+            .ota-status-failed  { background: var(--status-offline-dim); color: var(--danger); }
+            .ota-meta-row {
+              display: flex;
+              flex-wrap: wrap;
+              gap: 16px;
+              font-size: var(--text-xs);
+              color: var(--text-muted);
+            }
+            .ota-meta-row span strong { color: var(--text-secondary); }
+            /* Log modal */
+            .ota-log-modal {
+              position: fixed;
+              inset: 0;
+              background: rgba(0,0,0,0.7);
+              backdrop-filter: blur(6px);
+              z-index: 2000;
+              display: flex;
+              align-items: center;
+              justify-content: center;
+              opacity: 0;
+              visibility: hidden;
+              transition: all 0.2s;
+            }
+            .ota-log-modal.open {
+              opacity: 1;
+              visibility: visible;
+            }
+            .ota-log-panel {
+              background: var(--bg-elevated);
+              border: 1px solid var(--border-strong);
+              border-radius: var(--radius-lg);
+              width: 800px;
+              max-width: 95vw;
+              max-height: 80vh;
+              display: flex;
+              flex-direction: column;
+              overflow: hidden;
+              transform: translateY(24px);
+              transition: transform 0.2s;
+            }
+            .ota-log-modal.open .ota-log-panel {
+              transform: translateY(0);
+            }
+            .ota-log-header {
+              padding: 16px 20px;
+              border-bottom: 1px solid var(--border-default);
+              display: flex;
+              justify-content: space-between;
+              align-items: center;
+            }
+            .ota-log-body {
+              flex: 1;
+              overflow-y: auto;
+              padding: 16px 20px;
+              font-family: var(--font-mono);
+              font-size: 12px;
+              line-height: 1.7;
+              color: #c9d1d9;
+              background: #0d1117;
+              white-space: pre-wrap;
+            }
+            .ota-global-feedback {
+              border-radius: var(--radius-sm);
+              padding: 10px 16px;
+              font-size: var(--text-sm);
+              font-weight: 500;
+              display: none;
+              margin-bottom: 12px;
+            }
+            .ota-global-feedback.show { display: block; }
+            .ota-global-feedback.success { background: var(--status-online-dim); color: var(--success); border: 1px solid var(--success); }
+            .ota-global-feedback.error   { background: var(--status-offline-dim); color: var(--danger); border: 1px solid var(--danger); }
+          </style>
 
-            <!-- OTA Sync Card -->
-            <div class="glass-card flex-col gap-md">
-              <h3 class="text-md font-semibold color-primary">Over-The-Air (OTA) Node Sync</h3>
-              <p class="text-xs color-muted">Pushes the latest worker code and configurations (`worker/`) to all registered worker nodes concurrently via SFTP. Ensures the runtime codebase matches the master orchestrator.</p>
-              
-              <div class="p-md" style="background: var(--bg-muted); border: 1px solid var(--border-default); border-radius: var(--radius-sm); font-size: var(--text-sm);">
-                <strong>Worker Target Location:</strong> ~/worker/<br>
-                <strong>Transferred Package:</strong> Code packages and configs.
-              </div>
-              
-              <div id="ota-status-error" class="error-message hidden"></div>
-              <div id="ota-status-success" class="font-semibold text-xs color-success hidden" style="text-align: center;"></div>
-              
-              <div class="flex-row gap-md" style="margin-top: 10px;">
-                <button class="btn-primary flex-1" id="btn-trigger-ota-sftp" style="height: 44px; background:var(--primary);">
-                  Sync via SFTP (Reliable)
-                </button>
-                <button class="btn-primary flex-1" id="btn-trigger-ota-rsync" style="height: 44px; background:var(--accent);">
-                  Sync via Rsync (Fast Delta)
-                </button>
-              </div>
-            </div>
+          <!-- ── Bulk Actions Bar ────────────────────── -->
+          <div class="ota-bulk-bar">
+            <span class="bulk-title">⚡ Bulk Operations</span>
+            <button class="btn-primary" id="btn-ota-deploy-all" style="padding:8px 16px; font-size:var(--text-xs);">
+              🚀 Deploy All New Nodes (SCP)
+            </button>
+            <button class="btn-primary" id="btn-ota-sync-all" style="padding:8px 16px; font-size:var(--text-xs); background: var(--accent);">
+              🔄 Sync All Nodes (Rsync)
+            </button>
+            <button class="btn-secondary" id="btn-ota-validate" style="padding:8px 16px; font-size:var(--text-xs);">
+              ✅ Validate Paths
+            </button>
+            <button class="btn-secondary" id="btn-ota-refresh-list" style="padding:8px 16px; font-size:var(--text-xs);">
+              ↺ Refresh
+            </button>
+          </div>
 
-            <!-- Manual Package & Download Card -->
-            <div class="glass-card flex-col gap-md">
+          <!-- Global default remote path for bulk deploy -->
+          <div class="glass-card flex-col gap-sm" style="margin-bottom:24px;">
+            <div class="flex-row justify-between align-center">
               <div>
-                <h3 class="text-md font-semibold color-primary"> Manual Worker Package</h3>
-                <p class="text-xs color-muted mt-sm">Zip the entire <code>worker/</code> folder into a distributable archive saved in the project root. Share the zip file manually with any worker machine that can't be reached over SSH.</p>
+                <h3 class="text-md font-semibold color-primary">Code Deployment &amp; Sync</h3>
+                <p class="text-xs color-muted mt-xs">Manage worker code distribution. Use SCP for first-time setup; Rsync keeps nodes updated with only changed files.</p>
               </div>
-
-              <div class="p-md" style="background: var(--bg-muted); border: 1px solid var(--border-default); border-radius: var(--radius-sm); font-size: var(--text-sm);">
-                <strong>Output:</strong> <code>worker_package_&lt;timestamp&gt;.zip</code> in the project root.<br>
-                <strong>Excludes:</strong> <code>__pycache__/</code>, <code>runs/</code>, <code>.pyc</code> files.
-              </div>
-
-              <div id="pkg-status-error" class="error-message hidden"></div>
-              <div id="pkg-status-success" class="font-semibold text-xs color-success hidden" style="text-align: center;"></div>
-
-              <button class="btn-primary" id="btn-package-worker" style="height: 44px; margin-top: 4px; background: linear-gradient(135deg, var(--info), var(--primary));">
-                <span id="btn-package-worker-label"> Build &amp; Download Worker Package</span>
-              </button>
             </div>
+            <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
+              <div style="flex:1; min-width:220px;">
+                <label class="form-label" style="font-size:var(--text-xs);">Default Remote Deploy Path (for bulk deploy)</label>
+                <input class="glass-input" type="text" id="ota-default-remote-path"
+                  placeholder="e.g. /home/ubuntu/worker or ~/worker"
+                  style="font-family:var(--font-mono); font-size:var(--text-xs);">
+              </div>
+              <div style="flex:1; min-width:180px;">
+                <label class="form-label" style="font-size:var(--text-xs);">Local Source Directory</label>
+                <input class="glass-input" type="text" id="ota-local-dir" value="worker"
+                  style="font-family:var(--font-mono); font-size:var(--text-xs);">
+              </div>
+            </div>
+            <div id="ota-global-feedback" class="ota-global-feedback"></div>
+          </div>
 
+          <!-- ── Per-Node Deployment Cards ─────────────── -->
+          <div id="ota-nodes-grid" class="flex-col gap-md">
+            <!-- JS generated -->
+          </div>
+
+          <!-- Manual Worker Package -->
+          <div class="glass-card flex-col gap-md" style="margin-top:24px;">
+            <div>
+              <h3 class="text-md font-semibold color-primary">Manual Worker Package</h3>
+              <p class="text-xs color-muted mt-sm">Zip the <code>worker/</code> folder into a distributable archive for nodes that can't be reached over SSH.</p>
+            </div>
+            <div class="p-md" style="background: var(--bg-muted); border: 1px solid var(--border-default); border-radius: var(--radius-sm); font-size: var(--text-sm);">
+              <strong>Output:</strong> <code>worker_package_&lt;timestamp&gt;.zip</code> in the project root.<br>
+              <strong>Excludes:</strong> <code>__pycache__/</code>, <code>runs/</code>, <code>.pyc</code> files.
+            </div>
+            <div id="pkg-status-error" class="error-message hidden"></div>
+            <div id="pkg-status-success" class="font-semibold text-xs color-success hidden" style="text-align: center;"></div>
+            <button class="btn-primary" id="btn-package-worker" style="height: 44px; margin-top: 4px; background: linear-gradient(135deg, var(--info), var(--primary));">
+              <span id="btn-package-worker-label"> Build &amp; Download Worker Package</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- OTA Deployment Log Modal -->
+        <div class="ota-log-modal" id="ota-log-modal">
+          <div class="ota-log-panel">
+            <div class="ota-log-header">
+              <div>
+                <span class="font-semibold text-md color-primary" id="ota-log-modal-title">Deployment Logs</span>
+                <p class="text-xs color-muted mt-xs" id="ota-log-modal-subtitle">Node IP</p>
+              </div>
+              <button class="btn-secondary" id="btn-close-ota-log" style="padding:6px;border:none;background:none;cursor:pointer;font-size:18px;">✕</button>
+            </div>
+            <div class="ota-log-body" id="ota-log-body">No logs yet.</div>
           </div>
         </div>
 
