@@ -36,7 +36,7 @@ Start, stop, and restart the background Python worker agent running on remote no
 
 ### System Architecture
 
-![System Architecture Diagram](architecture.png)
+![System Architecture Diagram](/project/static/architecture.png)
 
 ### Component Breakdown
 
