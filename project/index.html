@@ -611,23 +611,25 @@
                     <div>
                       <label class="flex-row align-center gap-xs text-sm color-secondary" style="cursor:pointer; font-weight:600;">
                         <input type="checkbox" id="node-install-key-toggle" style="width:16px;height:16px;accent-color:var(--primary);" checked>
-                        Auto-install Master's SSH public key
+                        Auto-install Master's SSH Public Key
                       </label>
                       <p class="text-xs color-muted mt-xs" style="margin-left:22px;">If checked, the Master's key will automatically be appended to <code>~/.ssh/authorized_keys</code> on the worker for seamless future access (like ssh-copy-id).</p>
                     </div>
 
                     <div style="border-top:1px solid var(--border-default); padding-top:12px;">
                       <label class="flex-row align-center gap-xs text-sm color-secondary" style="cursor:pointer; font-weight:600;">
-                        <input type="checkbox" id="node-scp-deploy-toggle" style="width:16px;height:16px;accent-color:var(--primary);" onchange="toggleScpPathInput(this)">
-                        Want to add worker code file on this node via SCP ?
+                        <input type="checkbox" id="node-scp-deploy-toggle" style="width:16px;height:16px;accent-color:var(--primary);">
+                        Upload Worker Code to Node via SCP
                       </label>
-                      <p class="text-xs color-muted mt-xs" style="margin-left:22px;">If checked, the <code>worker/</code> folder will be copied immediately after registration. Use <strong>Rsync</strong> on the OTA page for future updates.</p>
-                      <div id="node-scp-path-wrapper" style="display:none; margin-top:10px; margin-left:22px;">
-                        <label class="form-label" style="font-size:var(--text-xs);">Remote Destination Path</label>
-                        <input class="glass-input" type="text" id="node-scp-remote-path"
-                          placeholder="e.g. /home/ubuntu/worker or ~/worker"
-                          style="font-family:var(--font-mono); font-size:var(--text-xs);">
-                      </div>
+                      <p class="text-xs color-muted mt-xs" style="margin-left:22px;">If checked, the <code>worker/</code> folder will be copied automatically to <code>~/worker</code> immediately after registration.</p>
+                    </div>
+
+                    <div style="border-top:1px solid var(--border-default); padding-top:12px;">
+                      <label class="flex-row align-center gap-xs text-sm color-secondary" style="cursor:pointer; font-weight:600;">
+                        <input type="checkbox" id="node-run-setup-toggle" style="width:16px;height:16px;accent-color:var(--primary);">
+                        Run Initial Setup
+                      </label>
+                      <p class="text-xs color-muted mt-xs" style="margin-left:22px;">If checked, executes the worker setup script to install dependencies, configure systemd services, and start the agent automatically.</p>
                     </div>
                   </div>
                   
@@ -696,9 +698,14 @@
                   
                   <div id="job-launch-error" class="error-message hidden" style="margin-top: 6px;"></div>
                   
-                  <button type="submit" class="btn-primary" id="btn-launch-ddp" style="height: 44px; margin-top: 10px;">
-                    Launch DDP Cluster Job
-                  </button>
+                  <div style="display: flex; gap: 12px; margin-top: 10px;">
+                    <button type="button" class="btn-secondary" id="btn-test-cluster" style="height: 44px; flex: 1;">
+                      Test Cluster
+                    </button>
+                    <button type="submit" class="btn-primary" id="btn-launch-ddp" style="height: 44px; flex: 2;">
+                      Launch DDP Cluster Job
+                    </button>
+                  </div>
                 </form>
               </div>
             </div>

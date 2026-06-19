@@ -72,4 +72,4 @@ while true; do
 done
 
 echo "--> Launching worker agent targeting master: $MASTER_URL"
-exec python worker.py --master "$MASTER_URL"
+exec python worker.py --master "$MASTER_URL" --ssh-user "$(whoami)"

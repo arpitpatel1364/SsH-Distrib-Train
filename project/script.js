@@ -57,13 +57,13 @@ const elements = {
   usernameInput: document.getElementById("username"),
   passwordInput: document.getElementById("password"),
   authError: document.getElementById("auth-error"),
-  
+
   wsStatusDot: document.getElementById("ws-status-dot"),
   wsStatusText: document.getElementById("ws-status-text"),
   btnThemeToggle: document.getElementById("btn-theme-toggle"),
   btnLogout: document.getElementById("btn-logout"),
   pageTitle: document.getElementById("page-title"),
-  
+
   // Dashboard Views
   statClusterStatus: document.getElementById("stat-cluster-status"),
   statConnectedNodes: document.getElementById("stat-connected-nodes"),
@@ -74,7 +74,7 @@ const elements = {
   chartUtilization: document.getElementById("chart-utilization"),
   chartTemperature: document.getElementById("chart-temperature"),
   btnRefreshNodes: document.getElementById("btn-refresh-nodes"),
-  
+
   // Node registration & list
   addNodeFormReal: document.getElementById("add-node-form-real"),
   nodeIpInput: document.getElementById("node-ip-input"),
@@ -87,7 +87,7 @@ const elements = {
   btnSubmitNode: document.getElementById("btn-submit-node"),
   nodesGridTitle: document.getElementById("nodes-grid-title"),
   clusterNodesGridContainer: document.getElementById("cluster-nodes-grid-container"),
-  
+
   // Launch training View
   launchTrainingForm: document.getElementById("launch-training-form"),
   jobModel: document.getElementById("job-model"),
@@ -98,19 +98,19 @@ const elements = {
   jobLaunchError: document.getElementById("job-launch-error"),
   btnLaunchDdp: document.getElementById("btn-launch-ddp"),
   trainingJobDetailsPane: document.getElementById("training-job-details-pane"),
-  
+
   // Monitor large views
   monitorUtilizationChart: document.getElementById("monitor-utilization-chart"),
   monitorTemperatureChart: document.getElementById("monitor-temperature-chart"),
-  
+
   // Logs view
   logsAutoscroll: document.getElementById("logs-autoscroll"),
   btnClearLogs: document.getElementById("btn-clear-logs"),
   logsConsole: document.getElementById("logs-console"),
-  
+
   // History table
   historyTableBody: document.getElementById("history-table-body"),
-  
+
   // OTA Page
   otaNodesGrid: document.getElementById("ota-nodes-grid"),
   otaDefaultRemotePath: document.getElementById("ota-default-remote-path"),
@@ -131,10 +131,10 @@ const elements = {
   btnPackageWorkerLabel: document.getElementById("btn-package-worker-label"),
   pkgStatusError: document.getElementById("pkg-status-error"),
   pkgStatusSuccess: document.getElementById("pkg-status-success"),
-  
+
   // Settings view
   settingsBackendHost: document.getElementById("settings-backend-host"),
-  
+
   // Modals
   confirmDeleteModal: document.getElementById("confirm-delete-modal"),
   deleteModalTitle: document.getElementById("delete-modal-title"),
@@ -150,7 +150,7 @@ document.addEventListener("DOMContentLoaded", () => {
   setupNavigation();
   setupEventListeners();
   checkAuth();
-  
+
   // Setup Settings
   if (elements.settingsBackendHost) {
     elements.settingsBackendHost.textContent = API_BASE;
@@ -176,11 +176,11 @@ function setupNavigation() {
   document.querySelectorAll(".nav-item").forEach(button => {
     button.addEventListener("click", () => {
       const targetView = button.getAttribute("data-view");
-      
+
       // Update sidebar visual active states
       document.querySelectorAll(".nav-item").forEach(b => b.classList.remove("active"));
       button.classList.add("active");
-      
+
       // Switch screen visibility
       document.querySelectorAll(".view-section").forEach(view => {
         if (view.id === `view-${targetView}`) {
@@ -189,7 +189,7 @@ function setupNavigation() {
           view.classList.add("hidden");
         }
       });
-      
+
       // Update browser tab header title
       let title = "Cluster Dashboard";
       if (targetView === "nodes") title = "Cluster Node Registry";
@@ -199,9 +199,9 @@ function setupNavigation() {
       if (targetView === "history") title = "Executed Run Database";
       if (targetView === "ota") title = "OTA Node Updates";
       if (targetView === "settings") title = "System Settings Configuration";
-      
+
       elements.pageTitle.textContent = title;
-      
+
       // Hook special initial fetches
       if (targetView === "history") fetchJobHistory();
       if (targetView === "ota") loadOtaNodes();
@@ -213,12 +213,15 @@ function setupNavigation() {
 function setupEventListeners() {
   if (elements.btnThemeToggle) elements.btnThemeToggle.addEventListener("click", toggleTheme);
   if (elements.btnLogout) elements.btnLogout.addEventListener("click", handleLogout);
-  
+
   // Forms
   if (elements.loginForm) elements.loginForm.addEventListener("submit", handleLogin);
   if (elements.addNodeFormReal) elements.addNodeFormReal.addEventListener("submit", handleAddNode);
   if (elements.launchTrainingForm) elements.launchTrainingForm.addEventListener("submit", handleLaunchTraining);
-  
+
+  const btnTestCluster = document.getElementById("btn-test-cluster");
+  if (btnTestCluster) btnTestCluster.addEventListener("click", handleTestCluster);
+
   // Actions
   if (elements.btnRefreshNodes) elements.btnRefreshNodes.addEventListener("click", triggerNodesRefresh);
   if (elements.btnClearLogs) {
@@ -228,17 +231,17 @@ function setupEventListeners() {
   }
   // OTA bulk buttons
   if (elements.btnOtaDeployAll) elements.btnOtaDeployAll.addEventListener("click", otaDeployAll);
-  if (elements.btnOtaSyncAll)   elements.btnOtaSyncAll.addEventListener("click", otaSyncAll);
-  if (elements.btnOtaValidate)  elements.btnOtaValidate.addEventListener("click", otaValidatePaths);
+  if (elements.btnOtaSyncAll) elements.btnOtaSyncAll.addEventListener("click", otaSyncAll);
+  if (elements.btnOtaValidate) elements.btnOtaValidate.addEventListener("click", otaValidatePaths);
   if (elements.btnOtaRefreshList) elements.btnOtaRefreshList.addEventListener("click", loadOtaNodes);
-  if (elements.btnCloseOtaLog)  elements.btnCloseOtaLog.addEventListener("click", closeOtaLogModal);
+  if (elements.btnCloseOtaLog) elements.btnCloseOtaLog.addEventListener("click", closeOtaLogModal);
   if (elements.btnPackageWorker) elements.btnPackageWorker.addEventListener("click", packageWorker);
-  
+
   // Modal buttons
   if (elements.btnCloseDeleteModal) elements.btnCloseDeleteModal.addEventListener("click", closeDeleteModal);
   if (elements.btnCancelDelete) elements.btnCancelDelete.addEventListener("click", closeDeleteModal);
   if (elements.btnConfirmDelete) elements.btnConfirmDelete.addEventListener("click", handleConfirmDeleteNode);
-  
+
   // Initial svg loading icon triggers
   renderIcons();
 }
@@ -252,7 +255,7 @@ function checkAuth() {
       elements.initialLoading.classList.add("hidden");
     }, 300);
   }
-  
+
   if (token) {
     elements.loginScreen.classList.add("hidden");
     elements.appLayout.classList.remove("hidden");
@@ -269,10 +272,10 @@ function checkAuth() {
 async function handleLogin(e) {
   e.preventDefault();
   elements.authError.classList.add("hidden");
-  
+
   const username = elements.usernameInput.value.trim();
   const password = elements.passwordInput.value;
-  
+
   try {
     const response = await fetch(`${API_BASE}/auth/login`, {
       method: "POST",
@@ -280,7 +283,7 @@ async function handleLogin(e) {
       body: JSON.stringify({ username, password })
     });
     const data = await response.json();
-    
+
     if (response.ok) {
       token = data.access_token;
       localStorage.setItem("token", token);
@@ -315,10 +318,10 @@ function initWebSocket() {
   if (ws) {
     ws.close();
   }
-  
+
   const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
   ws = new WebSocket(`${protocol}//${window.location.hostname}:8000/ws/stream`);
-  
+
   ws.onopen = () => {
     wsConnected = true;
     updateWsUI();
@@ -327,7 +330,7 @@ function initWebSocket() {
       restInterval = null;
     }
   };
-  
+
   ws.onmessage = (event) => {
     try {
       const data = JSON.parse(event.data);
@@ -337,7 +340,7 @@ function initWebSocket() {
         renderNodesGrid();
         renderDashboardNodes();
       }
-      
+
       if (data.active_job) {
         activeJob = data.active_job;
         renderActiveJobPanel();
@@ -348,19 +351,19 @@ function initWebSocket() {
         activeJob = null;
         renderActiveJobPanel();
       }
-      
+
       updateStatistics();
       renderIcons();
     } catch (err) {
       console.error("Error processing cluster metrics payload: ", err);
     }
   };
-  
+
   ws.onclose = () => {
     wsConnected = false;
     updateWsUI();
     startRestPolling();
-    
+
     clearTimeout(reconnectTimer);
     reconnectTimer = setTimeout(() => {
       if (token) {
@@ -384,7 +387,7 @@ function updateWsUI() {
 
 function startRestPolling() {
   if (restInterval) return; // already active
-  
+
   restInterval = setInterval(async () => {
     if (wsConnected) {
       clearInterval(restInterval);
@@ -393,14 +396,14 @@ function startRestPolling() {
     }
     await pollStatusREST();
   }, 5000);
-  
+
   // trigger one immediate poll
   pollStatusREST();
 }
 
 async function pollStatusREST() {
   if (!token) return;
-  
+
   try {
     // 1. Fetch cluster nodes
     const nodesRes = await fetch(`${API_BASE}/nodes/`, {
@@ -413,25 +416,25 @@ async function pollStatusREST() {
       }
       throw new Error("HTTP " + nodesRes.status);
     }
-    
+
     nodes = await nodesRes.json();
     processTelemetryHeartbeat();
     renderNodesGrid();
     renderDashboardNodes();
-    
+
     // 2. Fetch jobs list to locate any running / pending DDP tasks
     const jobsRes = await fetch(`${API_BASE}/train/jobs`, {
       headers: { "Authorization": `Bearer ${token}` }
     });
-    
+
     if (jobsRes.ok) {
       const jobs = await jobsRes.json();
       const runningJob = jobs.find(j => j.status === "running" || j.status === "pending");
-      
+
       if (runningJob) {
         let logs = [];
         let metrics_history = [];
-        
+
         // Fetch logs
         try {
           const logsRes = await fetch(`${API_BASE}/train/jobs/${runningJob.id}/logs`, {
@@ -444,7 +447,7 @@ async function pollStatusREST() {
         } catch (e) {
           console.warn("Could not retrieve active job logs: ", e);
         }
-        
+
         // Fetch metrics history
         try {
           const metricsRes = await fetch(`${API_BASE}/train/jobs/${runningJob.id}/metrics`, {
@@ -464,13 +467,13 @@ async function pollStatusREST() {
         } catch (e) {
           console.warn("Could not retrieve active job metrics: ", e);
         }
-        
+
         activeJob = {
           ...runningJob,
           logs,
           metrics_history
         };
-        
+
         renderActiveJobPanel();
         appendLogsToConsole(logs);
       } else {
@@ -478,7 +481,7 @@ async function pollStatusREST() {
         renderActiveJobPanel();
       }
     }
-    
+
     updateStatistics();
     renderIcons();
   } catch (err) {
@@ -493,7 +496,7 @@ function processTelemetryHeartbeat() {
   let totalGpu = 0;
   let totalVram = 0;
   let count = 0;
-  
+
   activeNodesList.forEach(node => {
     if (node.latest_metric) {
       totalGpu += node.latest_metric.gpu_util[0] || 0;
@@ -501,21 +504,21 @@ function processTelemetryHeartbeat() {
       count++;
     }
   });
-  
+
   const avgGpu = count > 0 ? Math.round(totalGpu / count) : 0;
   const avgVram = count > 0 ? Math.round(totalVram / count) : 0;
   const timestamp = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-  
+
   // Append to historical metrics array
   historicalMetrics.push({ timestamp, gpu: avgGpu, vram: avgVram });
   if (historicalMetrics.length > 20) {
     historicalMetrics.shift();
   }
-  
+
   // Render Custom SVG charts
   drawUtilizationChart(elements.chartUtilization, historicalMetrics);
   drawUtilizationChart(elements.monitorUtilizationChart, historicalMetrics);
-  
+
   drawTemperatureChart(elements.chartTemperature, nodes);
   drawTemperatureChart(elements.monitorTemperatureChart, nodes);
 }
@@ -524,24 +527,24 @@ function updateStatistics() {
   // 1. Cluster status
   const totalCount = nodes.length;
   const connectedCount = nodes.filter(n => n.status === "active" || n.status === "training").length;
-  
+
   let statusText = "INACTIVE";
   if (activeJob) {
     statusText = "TRAINING DDP";
   } else if (connectedCount > 0) {
     statusText = "HEALTHY";
   }
-  
+
   elements.statClusterStatus.textContent = statusText;
   elements.statConnectedNodes.textContent = `${connectedCount} / ${totalCount}`;
-  
+
   // 2. Active GPUs
   let totalGpus = 0;
   nodes.forEach(n => {
     totalGpus += n.gpu_count || 0;
   });
   elements.statActiveGpus.textContent = totalGpus;
-  
+
   // 3. Running jobs
   if (activeJob) {
     elements.statRunningJobs.textContent = activeJob.id.substring(0, 8);
@@ -561,10 +564,10 @@ function drawUtilizationChart(container, data) {
   const paddingRight = 16;
   const paddingTop = 20;
   const paddingBottom = 30;
-  
+
   const chartWidth = width - paddingLeft - paddingRight;
   const chartHeight = height - paddingTop - paddingBottom;
-  
+
   if (data.length === 0) {
     container.innerHTML = `
       <div style="height:100%; display:flex; align-items:center; justify-content:center; color:var(--text-muted); font-size:var(--text-sm);">
@@ -573,21 +576,21 @@ function drawUtilizationChart(container, data) {
     `;
     return;
   }
-  
+
   // Calculate SVG paths
   const maxPoints = 20;
   const dx = chartWidth / (maxPoints - 1);
-  
+
   let gpuPoints = [];
   let vramPoints = [];
-  
+
   // Pad data with 0s if it has less than 20 elements, to maintain chart width integrity
   const paddedData = [];
   for (let i = 0; i < maxPoints - data.length; i++) {
     paddedData.push({ gpu: 0, vram: 0 });
   }
   paddedData.push(...data);
-  
+
   paddedData.forEach((d, index) => {
     const x = paddingLeft + index * dx;
     const yGpu = paddingTop + chartHeight - (d.gpu / 100) * chartHeight;
@@ -595,25 +598,25 @@ function drawUtilizationChart(container, data) {
     gpuPoints.push({ x, y: yGpu });
     vramPoints.push({ x, y: yVram });
   });
-  
+
   // Generate Line & Area paths
   let linePathGpu = `M ${gpuPoints[0].x} ${gpuPoints[0].y} `;
   let areaPathGpu = `M ${gpuPoints[0].x} ${paddingTop + chartHeight} L ${gpuPoints[0].x} ${gpuPoints[0].y} `;
-  
+
   let linePathVram = `M ${vramPoints[0].x} ${vramPoints[0].y} `;
   let areaPathVram = `M ${vramPoints[0].x} ${paddingTop + chartHeight} L ${vramPoints[0].x} ${vramPoints[0].y} `;
-  
+
   for (let i = 1; i < gpuPoints.length; i++) {
     linePathGpu += `L ${gpuPoints[i].x} ${gpuPoints[i].y} `;
     areaPathGpu += `L ${gpuPoints[i].x} ${gpuPoints[i].y} `;
-    
+
     linePathVram += `L ${vramPoints[i].x} ${vramPoints[i].y} `;
     areaPathVram += `L ${vramPoints[i].x} ${vramPoints[i].y} `;
   }
-  
+
   areaPathGpu += `L ${gpuPoints[gpuPoints.length - 1].x} ${paddingTop + chartHeight} Z`;
   areaPathVram += `L ${vramPoints[vramPoints.length - 1].x} ${paddingTop + chartHeight} Z`;
-  
+
   // Build Grid lines
   let gridLines = "";
   for (let p = 0; p <= 100; p += 25) {
@@ -623,7 +626,7 @@ function drawUtilizationChart(container, data) {
       <text x="${paddingLeft - 10}" y="${yVal + 4}" fill="var(--text-muted)" font-size="10px" text-anchor="end">${p}%</text>
     `;
   }
-  
+
   // Time labels (render every 4th point)
   let timeLabels = "";
   paddedData.forEach((d, index) => {
@@ -634,7 +637,7 @@ function drawUtilizationChart(container, data) {
       `;
     }
   });
-  
+
   container.innerHTML = `
     <svg width="100%" height="100%" viewBox="0 0 ${width} ${height}" style="overflow:visible;">
       <defs>
@@ -674,13 +677,13 @@ function drawTemperatureChart(container, nodeList) {
   const paddingRight = 16;
   const paddingTop = 20;
   const paddingBottom = 30;
-  
+
   const chartWidth = width - paddingLeft - paddingRight;
   const chartHeight = height - paddingTop - paddingBottom;
-  
+
   // Filter only connected nodes
   const activeNodes = nodeList.filter(n => n.status !== "failed" && n.status !== "offline");
-  
+
   if (activeNodes.length === 0) {
     container.innerHTML = `
       <div style="height:100%; display:flex; align-items:center; justify-content:center; color:var(--text-muted); font-size:var(--text-sm);">
@@ -689,7 +692,7 @@ function drawTemperatureChart(container, nodeList) {
     `;
     return;
   }
-  
+
   // Grid Lines
   let gridLines = "";
   for (let t = 0; t <= 100; t += 25) {
@@ -699,18 +702,18 @@ function drawTemperatureChart(container, nodeList) {
       <text x="${paddingLeft - 10}" y="${yVal + 4}" fill="var(--text-muted)" font-size="10px" text-anchor="end">${t}°C</text>
     `;
   }
-  
+
   // Draw bars
   const barWidth = Math.min(32, (chartWidth / activeNodes.length) * 0.5);
   const barSpacing = (chartWidth - barWidth * activeNodes.length) / (activeNodes.length + 1);
-  
+
   let barsMarkup = "";
   activeNodes.forEach((node, index) => {
     const x = paddingLeft + barSpacing + index * (barWidth + barSpacing);
     const tempVal = (node.latest_metric && node.latest_metric.temp) ? node.latest_metric.temp[0] : 0;
     const barHeight = (tempVal / 100) * chartHeight;
     const y = paddingTop + chartHeight - barHeight;
-    
+
     // Threshold colors
     let barColor = "var(--success)";
     if (tempVal >= 80) {
@@ -718,21 +721,21 @@ function drawTemperatureChart(container, nodeList) {
     } else if (tempVal >= 60) {
       barColor = "var(--warning)";
     }
-    
+
     // Node Label last IP octet
     const octets = node.ip.split(".");
     const label = octets[octets.length - 1] || "node";
-    
+
     barsMarkup += `
       <!-- Bar Rect -->
       <rect x="${x}" y="${y}" width="${barWidth}" height="${barHeight}" fill="${barColor}" rx="3" />
       <!-- Value Text -->
-      <text x="${x + barWidth/2}" y="${y - 6}" fill="var(--text-primary)" font-size="10px" font-weight="600" text-anchor="middle">${tempVal}°C</text>
+      <text x="${x + barWidth / 2}" y="${y - 6}" fill="var(--text-primary)" font-size="10px" font-weight="600" text-anchor="middle">${tempVal}°C</text>
       <!-- Label IP -->
-      <text x="${x + barWidth/2}" y="${height - 10}" fill="var(--text-muted)" font-size="10px" font-family="var(--font-mono)" text-anchor="middle">.${label}</text>
+      <text x="${x + barWidth / 2}" y="${height - 10}" fill="var(--text-muted)" font-size="10px" font-family="var(--font-mono)" text-anchor="middle">.${label}</text>
     `;
   });
-  
+
   container.innerHTML = `
     <svg width="100%" height="100%" viewBox="0 0 ${width} ${height}" style="overflow:visible;">
       ${gridLines}
@@ -745,7 +748,7 @@ function drawTemperatureChart(container, nodeList) {
 function renderDashboardNodes() {
   if (!elements.dashboardNodesList) return;
   elements.dashboardNodesList.innerHTML = "";
-  
+
   if (nodes.length === 0) {
     elements.dashboardNodesList.innerHTML = `
       <div class="p-md text-center color-muted text-xs">
@@ -754,16 +757,16 @@ function renderDashboardNodes() {
     `;
     return;
   }
-  
+
   nodes.forEach(node => {
     let statusClass = "badge-offline";
     if (node.status === "active") statusClass = "badge-active";
     if (node.status === "training") statusClass = "badge-training";
     if (node.status === "failed") statusClass = "badge-failed";
-    
+
     const gCount = node.gpu_count || 0;
     const gInfo = node.gpu_info.join(", ") || "CPU";
-    
+
     const div = document.createElement("div");
     div.className = "node-item-mini";
     div.innerHTML = `
@@ -780,9 +783,9 @@ function renderDashboardNodes() {
 function renderNodesGrid() {
   if (!elements.clusterNodesGridContainer) return;
   elements.clusterNodesGridContainer.innerHTML = "";
-  
+
   elements.nodesGridTitle.textContent = `Registered Nodes (${nodes.length})`;
-  
+
   if (nodes.length === 0) {
     elements.clusterNodesGridContainer.innerHTML = `
       <div class="col-12 p-xl text-center color-muted text-sm">
@@ -791,13 +794,13 @@ function renderNodesGrid() {
     `;
     return;
   }
-  
+
   nodes.forEach(node => {
     const isOffline = node.status === "offline" || node.status === "failed";
     const gpuUtil = (!isOffline && node.latest_metric) ? node.latest_metric.gpu_util[0] || 0 : 0;
     const vramUtil = (!isOffline && node.latest_metric) ? node.latest_metric.vram_util[0] || 0 : 0;
     const temp = (!isOffline && node.latest_metric) ? node.latest_metric.temp[0] || 0 : 0;
-    
+
     // Status border colors
     let cardLeftColor = "var(--border-strong)";
     let statusClass = "badge-offline";
@@ -811,23 +814,28 @@ function renderNodesGrid() {
       cardLeftColor = "var(--danger)";
       statusClass = "badge-failed";
     }
-    
+
     // Metric progress bars threshold styling
     const gpuColor = gpuUtil > 80 ? "var(--danger)" : (gpuUtil > 50 ? "var(--warning)" : "var(--primary)");
     const vramColor = vramUtil > 80 ? "var(--danger)" : (vramUtil > 50 ? "var(--warning)" : "var(--primary)");
-    
+
     const card = document.createElement("div");
     card.className = "glass-card flex-col gap-md";
     card.style.borderLeft = `4px solid ${cardLeftColor}`;
     card.style.padding = "20px";
-    
+
     card.innerHTML = `
       <div class="flex-row justify-between align-start">
         <div class="flex-col">
           <span class="font-semibold text-sm color-primary">${node.ip}</span>
           <span class="text-xs color-muted mt-xs">${node.ssh_user}@${node.ip}:${node.ssh_port}</span>
         </div>
-        <span class="badge ${statusClass}">${node.status}</span>
+        <div class="flex-row align-center gap-xs">
+          <span class="badge ${statusClass}">${node.status}</span>
+          <button class="btn-secondary" onclick="confirmDeleteNode(${node.id}, '${node.ip}')" style="padding: 4px 6px; background: transparent; border: none; color: var(--danger); cursor: pointer;" title="Delete Node">
+            <span class="icon-slot" data-icon="Trash"></span>
+          </button>
+        </div>
       </div>
       
       <div class="node-metrics-box">
@@ -857,24 +865,27 @@ function renderNodesGrid() {
         </div>
       </div>
       
-      <div class="node-card-footer" style="flex-wrap:wrap; gap:6px;">
-        <button class="btn-primary" onclick="startWorkerOnNode(${node.id}, '${node.ip}')" style="padding: 6px 12px; font-size: var(--text-xs); flex:1; min-width:110px;" id="btn-start-worker-${node.id}">
-          ▶ Start Worker
+      <div class="node-card-footer" style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: auto;">
+        <button class="btn-primary" onclick="startWorkerOnNode(${node.id}, '${node.ip}')" style="padding: 8px; font-size: var(--text-xs);" id="btn-start-worker-${node.id}">
+          Start
         </button>
-        <button class="btn-secondary" onclick="stopWorkerOnNode(${node.id}, '${node.ip}')" style="padding: 6px 12px; font-size: var(--text-xs); color: var(--warning); flex:1; min-width:110px; border:none;" id="btn-stop-worker-${node.id}">
-          ◼ Stop Worker
+        <button class="btn-secondary" onclick="stopWorkerOnNode(${node.id}, '${node.ip}')" style="padding: 8px; font-size: var(--text-xs); color: var(--warning); border:none; background: var(--bg-muted);" id="btn-stop-worker-${node.id}">
+          Stop
         </button>
-        <button class="btn-secondary" onclick="triggerSingleNodeRefresh(${node.id})" style="padding: 6px 10px; font-size: var(--text-xs); border:none;">
-          <span class="icon-slot" data-icon="Refresh"></span>
+        <button class="btn-secondary" onclick="restartWorkerOnNode(${node.id}, '${node.ip}')" style="padding: 8px; font-size: var(--text-xs); color: var(--info); border:none; background: var(--bg-muted);" id="btn-restart-worker-${node.id}">
+          Restart
         </button>
-        <button class="btn-secondary" onclick="confirmDeleteNode(${node.id}, '${node.ip}')" style="padding: 6px 10px; font-size: var(--text-xs); color: var(--danger); border:none;">
-          <span class="icon-slot" data-icon="Trash"></span>
+        <button class="btn-secondary" onclick="checkWorkerStatus(${node.id}, '${node.ip}')" style="padding: 8px; font-size: var(--text-xs); border:none; background: var(--bg-muted);" id="btn-status-worker-${node.id}">
+          Status
         </button>
       </div>
     `;
-    
+
     elements.clusterNodesGridContainer.appendChild(card);
   });
+
+  // Re-render icons for newly added dynamic elements
+  renderIcons();
 }
 
 // --- Start / Stop Worker Agent on remote node via SSH ---
@@ -908,7 +919,86 @@ async function startWorkerOnNode(nodeId, nodeIp) {
   } catch (err) {
     alert(`❌ Network error: ${err.message}`);
   } finally {
-    if (btn) { btn.textContent = "▶ Start Worker"; btn.disabled = false; }
+    if (btn) { btn.textContent = "Start"; btn.disabled = false; }
+  }
+}
+
+async function stopWorkerOnNode(nodeId, nodeIp) {
+  const btn = document.getElementById(`btn-stop-worker-${nodeId}`);
+  if (btn) { btn.textContent = "Stopping…"; btn.disabled = true; }
+
+  try {
+    const res = await fetch(`${API_BASE}/nodes/${nodeId}/stop-worker`, {
+      method: "POST",
+      headers: { "Authorization": `Bearer ${token}` }
+    });
+    const data = await res.json();
+    if (res.ok) {
+      alert(`✅ Worker stopped on ${nodeIp}`);
+      triggerSingleNodeRefresh(nodeId);
+    } else {
+      alert(`❌ Failed to stop worker on ${nodeIp}:\n${data.detail || JSON.stringify(data)}`);
+    }
+  } catch (err) {
+    alert(`❌ Network error: ${err.message}`);
+  } finally {
+    if (btn) { btn.textContent = "Stop"; btn.disabled = false; }
+  }
+}
+
+async function restartWorkerOnNode(nodeId, nodeIp) {
+  const btn = document.getElementById(`btn-restart-worker-${nodeId}`);
+  let originalText = "Restart";
+  if (btn) {
+    originalText = btn.textContent;
+    btn.textContent = "Restarting...";
+    btn.disabled = true;
+  }
+
+  try {
+    const res = await fetch(`${API_BASE}/nodes/${nodeId}/restart-worker`, {
+      method: "POST",
+      headers: { "Authorization": `Bearer ${token}` }
+    });
+    const data = await res.json();
+    if (res.ok) {
+      alert(`Worker on ${nodeIp} successfully restarted.`);
+      triggerSingleNodeRefresh(nodeId);
+    } else {
+      alert("Failed to restart worker:\n" + data.detail);
+    }
+  } catch (err) {
+    alert("Error restarting worker on " + nodeIp + "\n" + err.message);
+  } finally {
+    if (btn) btn.textContent = originalText;
+    btn.disabled = false;
+  }
+}
+
+async function checkWorkerStatus(nodeId, nodeIp) {
+  const btn = document.getElementById(`btn-status-worker-${nodeId}`);
+  let originalText = "Status";
+  if (btn) {
+    originalText = btn.textContent;
+    btn.textContent = "Checking...";
+    btn.disabled = true;
+  }
+
+  try {
+    const res = await fetch(`${API_BASE}/nodes/${nodeId}/worker-status`, {
+      headers: { "Authorization": `Bearer ${token}` }
+    });
+    const data = await res.json();
+    if (res.ok) {
+      alert(`Worker Status on ${nodeIp}:\n\n${data.status}`);
+    } else {
+      alert("Failed to get status:\n" + data.detail);
+    }
+  } catch (err) {
+    alert("Error checking status on " + nodeIp + "\n" + err.message);
+  } finally {
+    if (btn) btn.textContent = originalText;
+    btn.disabled = false;
   }
 }
 
@@ -939,11 +1029,11 @@ async function stopWorkerOnNode(nodeId, nodeIp) {
 // --- 14. ACTIVE DDP TRAINING CONTROL & PROGRESS ---
 function renderActiveJobPanel() {
   const containers = [elements.dashboardActiveJobContainer, elements.trainingJobDetailsPane];
-  
+
   containers.forEach(container => {
     if (!container) return;
     container.innerHTML = "";
-    
+
     if (!activeJob) {
       container.innerHTML = `
         <div class="flex-col align-center justify-center p-xl text-center gap-md">
@@ -955,24 +1045,24 @@ function renderActiveJobPanel() {
       `;
       return;
     }
-    
+
     // Compute progress percentage
     const epochsTotal = activeJob.epochs || 10;
     const epochCurrent = activeJob.current_epoch || 0;
     const progressPercent = Math.min(100, Math.round((epochCurrent / epochsTotal) * 100));
-    
+
     // Extract last metrics loss
     let boxLoss = "-";
     let clsLoss = "-";
     let mAP50 = "-";
-    
+
     if (activeJob.metrics_history && activeJob.metrics_history.length > 0) {
       const latest = activeJob.metrics_history[activeJob.metrics_history.length - 1];
       boxLoss = latest.box_loss ? latest.box_loss.toFixed(4) : "-";
       clsLoss = latest.cls_loss ? latest.cls_loss.toFixed(4) : "-";
       mAP50 = latest.map50 ? (latest.map50 * 100).toFixed(1) + "%" : "-";
     }
-    
+
     container.innerHTML = `
       <div class="flex-col gap-md">
         <div class="flex-row justify-between align-center">
@@ -1027,11 +1117,11 @@ function navigateToLaunchView() {
 // --- 15. SYSTEM LOGS SCREEN TERMINAL SCRAPER ---
 function appendLogsToConsole(logLines) {
   if (!elements.logsConsole) return;
-  
+
   const wasAtBottom = elements.logsConsole.scrollHeight - elements.logsConsole.clientHeight <= elements.logsConsole.scrollTop + 40;
-  
+
   elements.logsConsole.innerHTML = "";
-  
+
   logLines.forEach(line => {
     // Expected format: "[2026-06-11 16:30:00] [192.168.1.15] INFO: Epoch 3 completed"
     // Let's strip brackets or separate them nicely
@@ -1039,14 +1129,14 @@ function appendLogsToConsole(logLines) {
     let timeStr = "";
     let nodeStr = "MASTER";
     let message = line;
-    
+
     // Check if timestamp is present
     if (line.startsWith("[")) {
       const endTimestamp = line.indexOf("]");
       if (endTimestamp !== -1) {
         timeStr = line.substring(1, endTimestamp).split(" ")[1] || "";
         const remaining = line.substring(endTimestamp + 2);
-        
+
         if (remaining.startsWith("[")) {
           const endNode = remaining.indexOf("]");
           nodeStr = remaining.substring(1, endNode);
@@ -1056,14 +1146,14 @@ function appendLogsToConsole(logLines) {
         }
       }
     }
-    
+
     let lineClass = "";
     if (message.toLowerCase().includes("error") || message.toLowerCase().includes("failed")) {
       lineClass = "error";
     } else if (message.toLowerCase().includes("warning") || message.toLowerCase().includes("retry")) {
       lineClass = "warning";
     }
-    
+
     const row = document.createElement("div");
     row.className = "console-line";
     row.innerHTML = `
@@ -1073,7 +1163,7 @@ function appendLogsToConsole(logLines) {
     `;
     elements.logsConsole.appendChild(row);
   });
-  
+
   if (elements.logsAutoscroll && elements.logsAutoscroll.checked && wasAtBottom) {
     elements.logsConsole.scrollTop = elements.logsConsole.scrollHeight;
   }
@@ -1082,11 +1172,6 @@ function appendLogsToConsole(logLines) {
 // --- 16. API CALL OPERATIONS ---
 
 // Helper: show/hide remote path input when SCP checkbox is toggled
-window.toggleScpPathInput = function(checkbox) {
-  const wrapper = document.getElementById("node-scp-path-wrapper");
-  if (wrapper) wrapper.style.display = checkbox.checked ? "block" : "none";
-};
-
 // A. Node registration
 async function handleAddNode(e) {
   e.preventDefault();
@@ -1094,24 +1179,17 @@ async function handleAddNode(e) {
   elements.nodeMessageError.className = "error-message hidden";
   elements.btnSubmitNode.disabled = true;
 
-  const ip           = elements.nodeIpInput.value.trim();
-  const ssh_user     = elements.nodeUserInput.value.trim();
-  const ssh_port     = parseInt(elements.nodePortInput.value.trim(), 10);
+  const ip = elements.nodeIpInput.value.trim();
+  const ssh_user = elements.nodeUserInput.value.trim();
+  const ssh_port = parseInt(elements.nodePortInput.value.trim(), 10);
   const ssh_password = elements.nodePasswordInput ? elements.nodePasswordInput.value : "";
-  const install_key  = elements.nodeInstallKeyToggle ? elements.nodeInstallKeyToggle.checked : false;
-  const scp_deploy   = document.getElementById("node-scp-deploy-toggle")?.checked || false;
-  const scp_path     = document.getElementById("node-scp-remote-path")?.value.trim() || "";
+  const install_key = elements.nodeInstallKeyToggle ? elements.nodeInstallKeyToggle.checked : false;
+  const scp_deploy = document.getElementById("node-scp-deploy-toggle")?.checked || false;
+  const run_setup = document.getElementById("node-run-setup-toggle")?.checked || false;
+  const scp_path = "worker";
 
   if (!ssh_password) {
     elements.nodeMessageError.textContent = "SSH Password is required.";
-    elements.nodeMessageError.className = "error-message";
-    elements.nodeMessageError.classList.remove("hidden");
-    elements.btnSubmitNode.disabled = false;
-    return;
-  }
-
-  if (scp_deploy && !scp_path) {
-    elements.nodeMessageError.textContent = "Please enter the Remote Destination Path for SCP deploy.";
     elements.nodeMessageError.className = "error-message";
     elements.nodeMessageError.classList.remove("hidden");
     elements.btnSubmitNode.disabled = false;
@@ -1122,7 +1200,7 @@ async function handleAddNode(e) {
 
   try {
     // Step 1: Register the node
-    const body = { ip, ssh_user, ssh_port, ssh_password, install_key, sync_code: false };
+    const body = { ip, ssh_user, ssh_port, ssh_password, install_key, sync_code: false, run_setup };
     const res = await fetch(`${API_BASE}/nodes/add-with-auth`, {
       method: "POST",
       headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
@@ -1156,6 +1234,27 @@ async function handleAddNode(e) {
         const scpData = await scpRes.json();
         if (scpRes.ok) {
           elements.nodeMessageError.textContent = `✅ Node ${ip} registered${keyMsg} + worker/ deployed to ${scp_path}. Use Rsync on OTA page for future updates.`;
+
+          if (run_setup) {
+            elements.btnSubmitNode.textContent = "Running Initial Setup...";
+            elements.nodeMessageError.textContent = `✅ Node ${ip} registered${keyMsg} + worker/ deployed. Running initial setup...`;
+            try {
+              const setupRes = await fetch(`${API_BASE}/nodes/${registeredNodeId}/run-setup`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` }
+              });
+              const setupData = await setupRes.json();
+              if (setupRes.ok) {
+                elements.nodeMessageError.textContent = `✅ Node ${ip} registered${keyMsg} + worker/ deployed + setup completed & service started!`;
+              } else {
+                elements.nodeMessageError.textContent = `Node ${ip} registered + deployed, but setup failed: ${setupData.detail}.`;
+                elements.nodeMessageError.className = "error-message";
+              }
+            } catch (setupErr) {
+              elements.nodeMessageError.textContent = `Node ${ip} registered + deployed, but setup error: ${setupErr.message}.`;
+              elements.nodeMessageError.className = "error-message";
+            }
+          }
         } else {
           elements.nodeMessageError.textContent = `Node ${ip} registered${keyMsg}, but SCP deploy failed: ${scpData.detail}. Go to OTA page to retry.`;
           elements.nodeMessageError.className = "error-message";
@@ -1164,6 +1263,9 @@ async function handleAddNode(e) {
         elements.nodeMessageError.textContent = `Node ${ip} registered${keyMsg}, but SCP deploy error: ${scpErr.message}. Go to OTA page to retry.`;
         elements.nodeMessageError.className = "error-message";
       }
+    } else if (run_setup) {
+      elements.nodeMessageError.className = "error-message";
+      elements.nodeMessageError.textContent = `⚠️ Cannot run setup without SCP deploy. Please enable 'Upload Worker Code'.`;
     } else {
       elements.nodeMessageError.className = "error-message color-success";
       elements.nodeMessageError.textContent = `✅ Node ${ip} registered.${keyMsg} Use the OTA page to deploy the worker/ code.`;
@@ -1175,9 +1277,9 @@ async function handleAddNode(e) {
     elements.nodeIpInput.value = "";
     if (elements.nodePasswordInput) elements.nodePasswordInput.value = "";
     const scpToggle = document.getElementById("node-scp-deploy-toggle");
-    if (scpToggle) { scpToggle.checked = false; toggleScpPathInput(scpToggle); }
-    const scpPathInput = document.getElementById("node-scp-remote-path");
-    if (scpPathInput) scpPathInput.value = "";
+    if (scpToggle) scpToggle.checked = false;
+    const runSetupToggle = document.getElementById("node-run-setup-toggle");
+    if (runSetupToggle) runSetupToggle.checked = false;
 
     triggerNodesRefresh();
 
@@ -1198,7 +1300,7 @@ async function triggerNodesRefresh() {
     elements.btnRefreshNodes.disabled = true;
     elements.btnRefreshNodes.textContent = "Refreshing Nodes...";
   }
-  
+
   try {
     const res = await fetch(`${API_BASE}/nodes/`, {
       headers: { "Authorization": `Bearer ${token}` }
@@ -1231,7 +1333,7 @@ async function triggerSingleNodeRefresh(nodeId) {
 }
 
 // D. Delete Node Modals
-window.confirmDeleteNode = function(id, ip) {
+window.confirmDeleteNode = function (id, ip) {
   deleteNodeIdPending = id;
   elements.deleteModalBodyText.innerHTML = `Are you sure you want to remove node <strong>${ip}</strong> from the orchestrator cluster?`;
   elements.confirmDeleteModal.classList.add("open");
@@ -1244,7 +1346,7 @@ function closeDeleteModal() {
 
 async function handleConfirmDeleteNode() {
   if (!deleteNodeIdPending) return;
-  
+
   try {
     const res = await fetch(`${API_BASE}/nodes/${deleteNodeIdPending}`, {
       method: "DELETE",
@@ -1265,13 +1367,13 @@ async function handleLaunchTraining(e) {
   elements.jobLaunchError.classList.add("hidden");
   elements.btnLaunchDdp.disabled = true;
   elements.btnLaunchDdp.textContent = "Initializing cluster & DDP scripts...";
-  
+
   const model_name = elements.jobModel.value;
   const dataset_path = elements.jobDataset.value.trim();
   const epochs = parseInt(elements.jobEpochs.value, 10);
   const batch_size = parseInt(elements.jobBatch.value, 10);
   const lr0 = parseFloat(elements.jobLr.value);
-  
+
   try {
     const res = await fetch(`${API_BASE}/train/start`, {
       method: "POST",
@@ -1288,7 +1390,7 @@ async function handleLaunchTraining(e) {
       })
     });
     const data = await res.json();
-    
+
     if (res.ok) {
       // Direct user to logs view to see setup
       const logsBtn = document.getElementById("nav-btn-logs");
@@ -1306,14 +1408,45 @@ async function handleLaunchTraining(e) {
   }
 }
 
+async function handleTestCluster() {
+  const btn = document.getElementById("btn-test-cluster");
+  if (!btn) return;
+
+  btn.disabled = true;
+  btn.textContent = "Testing Cluster...";
+
+  try {
+    const res = await fetch(`${API_BASE}/train/test-cluster`, {
+      method: "POST",
+      headers: { "Authorization": `Bearer ${token}` }
+    });
+
+    const data = await res.json();
+    if (res.ok && data.status !== "error") {
+      let resultText = "Cluster Health Report:\n\n";
+      data.details.forEach(d => {
+        resultText += d + "\n";
+      });
+      alert(resultText);
+    } else {
+      alert(`Test Failed:\n${data.message || data.detail}`);
+    }
+  } catch (err) {
+    alert(`Network Error during test:\n${err.message}`);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "Test Cluster";
+  }
+}
+
 // F. Terminate DDP Run
-window.stopDDPJob = async function() {
+window.stopDDPJob = async function () {
   if (!activeJob) {
     alert("No active training job to stop.");
     return;
   }
   if (!confirm("Are you sure you want to stop the cluster training job? All node runtimes will be terminated immediately.")) return;
-  
+
   try {
     await fetch(`${API_BASE}/train/jobs/${activeJob.id}/stop`, {
       method: "POST",
@@ -1332,7 +1465,7 @@ async function fetchJobHistory() {
       <td colspan="6" class="text-center p-md color-muted">Loading job records...</td>
     </tr>
   `;
-  
+
   try {
     const res = await fetch(`${API_BASE}/train/jobs`, {
       headers: { "Authorization": `Bearer ${token}` }
@@ -1340,7 +1473,7 @@ async function fetchJobHistory() {
     if (res.ok) {
       const historyList = await res.json();
       elements.historyTableBody.innerHTML = "";
-      
+
       if (historyList.length === 0) {
         elements.historyTableBody.innerHTML = `
           <tr>
@@ -1349,7 +1482,7 @@ async function fetchJobHistory() {
         `;
         return;
       }
-      
+
       historyList.forEach(job => {
         let statusBadge = `<span class="badge badge-offline">${job.status}</span>`;
         if (job.status === "completed") {
@@ -1357,12 +1490,12 @@ async function fetchJobHistory() {
         } else if (job.status === "failed") {
           statusBadge = `<span class="badge badge-failed">${job.status}</span>`;
         }
-        
+
         let downloadAction = `<span class="color-muted">-</span>`;
         if (job.status === "completed") {
           downloadAction = `<a href="${API_BASE}/train/download/${job.id}" class="btn-primary" style="padding: 4px 8px; text-decoration: none; border-radius: 4px; font-size: var(--text-xs);" download>Download</a>`;
         }
-        
+
         const tr = document.createElement("tr");
         tr.style.borderBottom = "1px solid var(--border-default)";
         tr.innerHTML = `
@@ -1452,30 +1585,23 @@ function renderOtaCards() {
         <span><strong>Deploy Status:</strong> ${node.deploy_status || "never"}</span>
       </div>
 
-      <div class="ota-path-row">
-        <label class="form-label" style="white-space:nowrap; font-size:var(--text-xs); min-width:110px;">Remote Path</label>
-        <input class="glass-input ota-path-input" type="text"
-          id="ota-path-${node.id}"
-          value="${remotePath}"
-          placeholder="/home/${node.ssh_user}/worker">
-      </div>
 
-      <div class="ota-node-actions">
+      <div class="ota-node-actions" style="margin-top: 10px;">
         ${!isDeployed ? `
         <button class="btn-primary" id="btn-scp-${node.id}"
           onclick="otaSCPDeploy(${node.id})"
-          style="padding:7px 14px; font-size:var(--text-xs);">
-          🚀 SCP Initial Deploy
+          style="padding:8px 14px; font-size:var(--text-xs); flex: 1; text-align: center;">
+           SCP Deploy
         </button>` : ""}
         <button class="btn-primary" id="btn-rsync-${node.id}"
           onclick="otaRsyncSync(${node.id})"
-          style="padding:7px 14px; font-size:var(--text-xs); background:var(--accent);">
-          🔄 Rsync Sync
+          style="padding:8px 14px; font-size:var(--text-xs); background:var(--accent); flex: 1; text-align: center;">
+           Rsync
         </button>
         <button class="btn-secondary" id="btn-logs-${node.id}"
           onclick="openOtaLogModal(${node.id}, '${node.ip}')"
-          style="padding:7px 14px; font-size:var(--text-xs);">
-          📋 View Logs
+          style="padding:8px 14px; font-size:var(--text-xs); flex: 1; text-align: center; border:none; background:var(--bg-muted);">
+           Logs
         </button>
       </div>
 
@@ -1494,13 +1620,8 @@ function otaCardMsg(nodeId, msg, isError) {
 }
 
 // Per-node SCP initial deploy
-window.otaSCPDeploy = async function(nodeId) {
-  const pathInput = document.getElementById(`ota-path-${nodeId}`);
-  const remotePath = pathInput ? pathInput.value.trim() : "";
-  if (!remotePath) {
-    otaCardMsg(nodeId, "Please enter the remote deployment path first.", true);
-    return;
-  }
+window.otaSCPDeploy = async function (nodeId) {
+  const remotePath = "worker";
   const localDir = elements.otaLocalDir ? elements.otaLocalDir.value.trim() || "worker" : "worker";
   const btn = document.getElementById(`btn-scp-${nodeId}`);
   if (btn) { btn.disabled = true; btn.textContent = "Deploying…"; }
@@ -1527,7 +1648,7 @@ window.otaSCPDeploy = async function(nodeId) {
 };
 
 // Per-node Rsync sync
-window.otaRsyncSync = async function(nodeId) {
+window.otaRsyncSync = async function (nodeId) {
   const pathInput = document.getElementById(`ota-path-${nodeId}`);
   const remotePath = pathInput ? pathInput.value.trim() : "";
   // If user edited the path field, save it first
@@ -1659,7 +1780,7 @@ function showOtaGlobalFeedback(msg, isError) {
 }
 
 // Log Modal
-window.openOtaLogModal = async function(nodeId, nodeIp) {
+window.openOtaLogModal = async function (nodeId, nodeIp) {
   if (!elements.otaLogModal) return;
   elements.otaLogModalTitle.textContent = `Deployment Logs — Node ${nodeIp}`;
   elements.otaLogModalSubtitle.textContent = `Node ID: ${nodeId}`;

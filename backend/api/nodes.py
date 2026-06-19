@@ -117,6 +117,7 @@ class AddWithAuthPayload(_BaseModel):
     install_key: bool = False          # if True, copy public_key into authorized_keys
     public_key: Optional[str] = None   # the key content to install (required when install_key=True)
     sync_code: bool = False            # if True, zip worker/ and upload via SFTP
+    run_setup: bool = False            # if True, execute auto_setup_worker.sh
 
 def _parse_gpu_info(gpu_res: Optional[str]):
     gpu_count = 0
@@ -156,12 +157,8 @@ def add_node_with_auth(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user)
 ):
-    # Duplicate check
-    if db.query(Node).filter(Node.ip == payload.ip).first():
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Node {payload.ip} is already registered."
-        )
+    existing_node = db.query(Node).filter(Node.ip == payload.ip).first()
+    # Remove duplicate block, we will update existing_node if it exists.
 
     pub_key_to_install = None
     if payload.install_key:
@@ -262,15 +259,24 @@ def add_node_with_auth(
         client.close()
 
     # --- Step 5: Save node ---
-    node = Node(
-        ip=payload.ip,
-        ssh_user=payload.ssh_user,
-        ssh_port=payload.ssh_port,
-        status="active",
-        gpu_count=gpu_count,
-        gpu_info=json.dumps(gpu_info_list)
-    )
-    db.add(node)
+    if existing_node:
+        existing_node.ssh_user = payload.ssh_user
+        existing_node.ssh_port = payload.ssh_port
+        existing_node.status = "active"
+        existing_node.gpu_count = gpu_count
+        existing_node.gpu_info = json.dumps(gpu_info_list)
+        node = existing_node
+    else:
+        node = Node(
+            ip=payload.ip,
+            ssh_user=payload.ssh_user,
+            ssh_port=payload.ssh_port,
+            status="active",
+            gpu_count=gpu_count,
+            gpu_info=json.dumps(gpu_info_list)
+        )
+        db.add(node)
+    
     db.commit()
     db.refresh(node)
     return node
@@ -435,6 +441,26 @@ def start_worker_on_node(
         "detail": "Worker service is running and verified."
     }
 
+@router.post("/{node_id}/run-setup")
+def run_setup_on_node(
+    node_id: int,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user)
+):
+    node = db.query(Node).filter(Node.id == node_id).first()
+    if not node:
+        raise HTTPException(status_code=404, detail="Node not found")
+    
+    remote_path = node.remote_deploy_path or "~/worker"
+    
+    # We execute auto_setup_worker.sh
+    cmd = f"bash {remote_path}/auto_setup_worker.sh"
+    try:
+        result = ssh_manager.execute(node.ip, node.ssh_user, node.ssh_port, cmd, timeout=300)
+        return {"status": "success", "detail": "Setup completed", "output": result}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 @router.post("/{node_id}/stop-worker")
 def stop_worker_on_node(
     node_id: int,
@@ -445,14 +471,61 @@ def stop_worker_on_node(
     if not node:
         raise HTTPException(status_code=404, detail="Node not found")
 
-    # Stop via systemd if available, else pkill
     cmd = (
-        "if command -v systemctl >/dev/null 2>&1 && sudo -n true 2>/dev/null; then "
-        "  sudo systemctl stop cactus-worker; "
-        "fi; "
-        "pkill -f 'python worker.py' || true"
+        f"if sudo -n systemctl is-active --quiet cactus-worker.service 2>/dev/null; then "
+        f"  sudo systemctl stop cactus-worker.service; "
+        f"else "
+        f"  pkill -f 'worker.py'; "
+        f"fi && echo 'STOPPED'"
     )
-    ssh_manager.execute(node.ip, node.ssh_user, node.ssh_port, cmd, timeout=10)
 
-    return {"status": "stopped", "node_ip": node.ip}
+    result = ssh_manager.execute(node.ip, node.ssh_user, node.ssh_port, cmd, timeout=10)
+    
+    node.status = "offline"
+    db.commit()
 
+    return {"status": "stopped", "detail": "Worker service stopped."}
+
+@router.post("/{node_id}/restart-worker")
+def restart_worker_on_node(
+    node_id: int,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user)
+):
+    node = db.query(Node).filter(Node.id == node_id).first()
+    if not node:
+        raise HTTPException(status_code=404, detail="Node not found")
+
+    cmd = (
+        f"if sudo -n systemctl is-enabled cactus-worker.service 2>/dev/null; then "
+        f"  sudo systemctl restart cactus-worker.service && echo 'RESTARTED'; "
+        f"else "
+        f"  pkill -f 'worker.py'; nohup bash ~/worker/run.sh > ~/worker/worker_agent.log 2>&1 & echo 'RESTARTED'; "
+        f"fi"
+    )
+
+    result = ssh_manager.execute(node.ip, node.ssh_user, node.ssh_port, cmd, timeout=15)
+    return {"status": "restarted", "detail": "Worker service restarted."}
+
+@router.get("/{node_id}/worker-status")
+def get_worker_status_on_node(
+    node_id: int,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user)
+):
+    node = db.query(Node).filter(Node.id == node_id).first()
+    if not node:
+        raise HTTPException(status_code=404, detail="Node not found")
+
+    cmd = (
+        f"if sudo -n systemctl is-active --quiet cactus-worker.service 2>/dev/null; then "
+        f"  echo 'systemd: running'; "
+        f"elif pgrep -f 'worker.py' >/dev/null; then "
+        f"  echo 'process: running'; "
+        f"else "
+        f"  echo 'stopped'; "
+        f"fi"
+    )
+
+    result = ssh_manager.execute(node.ip, node.ssh_user, node.ssh_port, cmd, timeout=5)
+    return {"status": result.strip() if result else "unknown"}
