@@ -36,7 +36,14 @@ const Icons = {
   Play: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"/></svg>`,
   Square: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/></svg>`,
   Download: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>`,
-  ChevronRight: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>`
+  ChevronRight: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>`,
+  Sun: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>`,
+  Moon: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>`,
+  RotateCw: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>`,
+  RefreshCw: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>`,
+  UploadCloud: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 16 12 12 8 16"/><line x1="12" y1="12" x2="12" y2="21"/><path d="M20.39 18.39A5 5 0 0 0 18 9h-1.26A8 8 0 1 0 3 16.3"/></svg>`,
+  Zap: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>`,
+  UserPlus: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="8.5" cy="7" r="4"/><line x1="20" y1="8" x2="20" y2="14"/><line x1="23" y1="11" x2="17" y2="11"/></svg>`
 };
 
 function renderIcons() {
@@ -110,6 +117,7 @@ const elements = {
 
   // History table
   historyTableBody: document.getElementById("history-table-body"),
+  historyPagination: document.getElementById("history-pagination"),
 
   // OTA Page
   otaNodesGrid: document.getElementById("ota-nodes-grid"),
@@ -161,7 +169,12 @@ document.addEventListener("DOMContentLoaded", () => {
 function initTheme() {
   document.documentElement.setAttribute("data-theme", theme);
   if (elements.btnThemeToggle) {
-    elements.btnThemeToggle.textContent = theme === "dark" ? "☀️ Light" : "🌙 Dark";
+    // In dark mode show Sun (to switch to light), in light mode show Moon (to switch to dark)
+    elements.btnThemeToggle.innerHTML = theme === "dark"
+      ? '<span class="icon-slot" data-icon="Sun"></span>'
+      : '<span class="icon-slot" data-icon="Moon"></span>';
+    elements.btnThemeToggle.title = theme === "dark" ? "Switch to Light Mode" : "Switch to Dark Mode";
+    renderIcons();
   }
 }
 
@@ -230,6 +243,20 @@ function setupEventListeners() {
     });
   }
   // OTA bulk buttons
+  const btnRefreshHistory = document.getElementById("btn-refresh-history");
+  if (btnRefreshHistory) btnRefreshHistory.addEventListener("click", fetchJobHistory);
+
+  // Status filter pills
+  document.querySelectorAll("#history-filter-bar .filter-pill").forEach(pill => {
+    pill.addEventListener("click", () => {
+      document.querySelectorAll("#history-filter-bar .filter-pill").forEach(p => p.classList.remove("active"));
+      pill.classList.add("active");
+      historyActiveFilter = pill.getAttribute("data-filter");
+      historyCurrentPage = 1;
+      renderHistoryPage();
+    });
+  });
+
   if (elements.btnOtaDeployAll) elements.btnOtaDeployAll.addEventListener("click", otaDeployAll);
   if (elements.btnOtaSyncAll) elements.btnOtaSyncAll.addEventListener("click", otaSyncAll);
   if (elements.btnOtaValidate) elements.btnOtaValidate.addEventListener("click", otaValidatePaths);
@@ -426,6 +453,14 @@ async function pollStatusREST() {
     const jobsRes = await fetch(`${API_BASE}/train/jobs`, {
       headers: { "Authorization": `Bearer ${token}` }
     });
+
+    if (!jobsRes.ok) {
+      if (jobsRes.status === 401) {
+        handleLogout();
+        return;
+      }
+      throw new Error("HTTP " + jobsRes.status);
+    }
 
     if (jobsRes.ok) {
       const jobs = await jobsRes.json();
@@ -825,17 +860,12 @@ function renderNodesGrid() {
     card.style.padding = "20px";
 
     card.innerHTML = `
-      <div class="flex-row justify-between align-start">
+      <div class="flex-row justify-between align-center">
         <div class="flex-col">
           <span class="font-semibold text-sm color-primary">${node.ip}</span>
           <span class="text-xs color-muted mt-xs">${node.ssh_user}@${node.ip}:${node.ssh_port}</span>
         </div>
-        <div class="flex-row align-center gap-xs">
-          <span class="badge ${statusClass}">${node.status}</span>
-          <button class="btn-secondary" onclick="confirmDeleteNode(${node.id}, '${node.ip}')" style="padding: 4px 6px; background: transparent; border: none; color: var(--danger); cursor: pointer;" title="Delete Node">
-            <span class="icon-slot" data-icon="Trash"></span>
-          </button>
-        </div>
+        <span class="badge ${statusClass}">${node.status}</span>
       </div>
       
       <div class="node-metrics-box">
@@ -865,18 +895,23 @@ function renderNodesGrid() {
         </div>
       </div>
       
-      <div class="node-card-footer" style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: auto;">
-        <button class="btn-primary" onclick="startWorkerOnNode(${node.id}, '${node.ip}')" style="padding: 8px; font-size: var(--text-xs);" id="btn-start-worker-${node.id}">
-          Start
-        </button>
-        <button class="btn-secondary" onclick="stopWorkerOnNode(${node.id}, '${node.ip}')" style="padding: 8px; font-size: var(--text-xs); color: var(--warning); border:none; background: var(--bg-muted);" id="btn-stop-worker-${node.id}">
-          Stop
-        </button>
-        <button class="btn-secondary" onclick="restartWorkerOnNode(${node.id}, '${node.ip}')" style="padding: 8px; font-size: var(--text-xs); color: var(--info); border:none; background: var(--bg-muted);" id="btn-restart-worker-${node.id}">
-          Restart
-        </button>
-        <button class="btn-secondary" onclick="checkWorkerStatus(${node.id}, '${node.ip}')" style="padding: 8px; font-size: var(--text-xs); border:none; background: var(--bg-muted);" id="btn-status-worker-${node.id}">
-          Status
+      <div class="node-card-footer" style="display: flex; justify-content: space-between; align-items: center; margin-top: auto; padding-top: 10px; border-top: 1px solid var(--border-subtle);">
+        <div style="display:flex; gap:6px;">
+          <button class="btn-icon btn-icon-success" onclick="startWorkerOnNode(${node.id}, '${node.ip}')" id="btn-start-worker-${node.id}" title="Start Worker">
+            <span class="icon-slot" data-icon="Play"></span>
+          </button>
+          <button class="btn-icon btn-icon-danger" onclick="stopWorkerOnNode(${node.id}, '${node.ip}')" id="btn-stop-worker-${node.id}" title="Stop Worker">
+            <span class="icon-slot" data-icon="Square"></span>
+          </button>
+          <button class="btn-icon btn-icon-warning" onclick="restartWorkerOnNode(${node.id}, '${node.ip}')" id="btn-restart-worker-${node.id}" title="Restart Worker">
+            <span class="icon-slot" data-icon="RotateCw"></span>
+          </button>
+          <button class="btn-icon btn-icon-info" onclick="checkWorkerStatus(${node.id}, '${node.ip}')" id="btn-status-worker-${node.id}" title="Check Status">
+            <span class="icon-slot" data-icon="Activity"></span>
+          </button>
+        </div>
+        <button class="btn-icon btn-icon-danger" onclick="confirmDeleteNode(${node.id}, '${node.ip}')" title="Delete Node">
+          <span class="icon-slot" data-icon="Trash"></span>
         </button>
       </div>
     `;
@@ -1034,15 +1069,16 @@ function renderActiveJobPanel() {
     if (!container) return;
     container.innerHTML = "";
 
-    if (!activeJob) {
+      if (!activeJob) {
       container.innerHTML = `
         <div class="flex-col align-center justify-center p-xl text-center gap-md">
           <div class="color-muted text-sm">No active parallel processing training job is currently running.</div>
-          <button class="btn-primary" onclick="navigateToLaunchView()" style="max-width: 200px;">
-            Go to Launch Wizard
+          <button class="btn-primary" onclick="navigateToLaunchView()" style="max-width: 220px;">
+            <span class="icon-slot" data-icon="Play"></span> Go to Launch Wizard
           </button>
         </div>
       `;
+      renderIcons();
       return;
     }
 
@@ -1457,66 +1493,172 @@ window.stopDDPJob = async function () {
   }
 };
 
-// G. Fetch History List
+// G. Fetch History List (with client-side pagination + status filter)
+const HISTORY_PAGE_SIZE = 10;
+let historyAllJobs = [];
+let historyCurrentPage = 1;
+let historyActiveFilter = "all";
+
 async function fetchJobHistory() {
   if (!elements.historyTableBody) return;
+
   elements.historyTableBody.innerHTML = `
-    <tr>
-      <td colspan="6" class="text-center p-md color-muted">Loading job records...</td>
-    </tr>
+    <tr><td colspan="7" class="text-center p-md color-muted">Loading job records...</td></tr>
   `;
+  if (elements.historyPagination) elements.historyPagination.innerHTML = "";
 
   try {
     const res = await fetch(`${API_BASE}/train/jobs`, {
       headers: { "Authorization": `Bearer ${token}` }
     });
-    if (res.ok) {
-      const historyList = await res.json();
-      elements.historyTableBody.innerHTML = "";
-
-      if (historyList.length === 0) {
-        elements.historyTableBody.innerHTML = `
-          <tr>
-            <td colspan="7" class="text-center p-md color-muted">No historical training records found.</td>
-          </tr>
-        `;
-        return;
-      }
-
-      historyList.forEach(job => {
-        let statusBadge = `<span class="badge badge-offline">${job.status}</span>`;
-        if (job.status === "completed") {
-          statusBadge = `<span class="badge badge-active">${job.status}</span>`;
-        } else if (job.status === "failed") {
-          statusBadge = `<span class="badge badge-failed">${job.status}</span>`;
-        }
-
-        let downloadAction = `<span class="color-muted">-</span>`;
-        if (job.status === "completed") {
-          downloadAction = `<a href="${API_BASE}/train/download/${job.id}" class="btn-primary" style="padding: 4px 8px; text-decoration: none; border-radius: 4px; font-size: var(--text-xs);" download>Download</a>`;
-        }
-
-        const tr = document.createElement("tr");
-        tr.style.borderBottom = "1px solid var(--border-default)";
-        tr.innerHTML = `
-          <td style="padding: 12px 16px;" class="mono-text">${job.id}</td>
-          <td style="padding: 12px 16px;">${job.model_name}</td>
-          <td style="padding: 12px 16px;">${job.dataset_path}</td>
-          <td style="padding: 12px 16px;">${job.epochs}</td>
-          <td style="padding: 12px 16px;">${job.batch_size}</td>
-          <td style="padding: 12px 16px;">${statusBadge}</td>
-          <td style="padding: 12px 16px;">${downloadAction}</td>
-        `;
-        elements.historyTableBody.appendChild(tr);
-      });
+    if (!res.ok) {
+      if (res.status === 401) { handleLogout(); return; }
+      throw new Error("HTTP " + res.status);
     }
+    historyAllJobs = await res.json();
+    historyCurrentPage = 1;
+    renderHistoryPage();
   } catch (err) {
     elements.historyTableBody.innerHTML = `
-      <tr>
-        <td colspan="7" class="text-center p-md color-danger">Failed to load run history.</td>
-      </tr>
+      <tr><td colspan="7" class="text-center p-md color-danger">Failed to load run history: ${err.message}</td></tr>
     `;
   }
+}
+
+function renderHistoryPage() {
+  if (!elements.historyTableBody) return;
+  elements.historyTableBody.innerHTML = "";
+
+  // Apply status filter
+  const filtered = historyActiveFilter === "all"
+    ? historyAllJobs
+    : historyAllJobs.filter(j => j.status === historyActiveFilter);
+
+  // Update count badge
+  const countEl = document.getElementById("history-filter-count");
+  if (countEl) {
+    countEl.textContent = filtered.length > 0
+      ? `${filtered.length} job${filtered.length !== 1 ? "s" : ""}`
+      : "";
+  }
+
+  if (filtered.length === 0) {
+    elements.historyTableBody.innerHTML = `
+      <tr><td colspan="7" class="text-center p-md color-muted">No jobs match the selected filter.</td></tr>
+    `;
+    if (elements.historyPagination) elements.historyPagination.innerHTML = "";
+    return;
+  }
+
+  const totalPages = Math.ceil(filtered.length / HISTORY_PAGE_SIZE);
+  historyCurrentPage = Math.max(1, Math.min(historyCurrentPage, totalPages));
+
+  const start = (historyCurrentPage - 1) * HISTORY_PAGE_SIZE;
+  const end   = Math.min(start + HISTORY_PAGE_SIZE, filtered.length);
+  const pageJobs = filtered.slice(start, end);
+
+  pageJobs.forEach(job => {
+    let statusBadge = `<span class="badge badge-offline">${job.status}</span>`;
+    if (job.status === "completed") statusBadge = `<span class="badge badge-active">${job.status}</span>`;
+    else if (job.status === "failed")  statusBadge = `<span class="badge badge-failed">${job.status}</span>`;
+    else if (job.status === "running") statusBadge = `<span class="badge badge-training">${job.status}</span>`;
+
+    let downloadAction = `<span class="color-muted">—</span>`;
+    if (job.status === "completed") {
+      downloadAction = `<a href="${API_BASE}/train/download/${job.id}" class="btn-primary" style="padding:4px 10px;text-decoration:none;border-radius:4px;font-size:var(--text-xs);" download>Download</a>`;
+    }
+
+    const tr = document.createElement("tr");
+    tr.style.borderBottom = "1px solid var(--border-default)";
+    tr.innerHTML = `
+      <td style="padding:12px 16px;" class="mono-text">${job.id}</td>
+      <td style="padding:12px 16px;">${job.model_name}</td>
+      <td style="padding:12px 16px;">${job.dataset_path}</td>
+      <td style="padding:12px 16px;">${job.epochs}</td>
+      <td style="padding:12px 16px;">${job.batch_size}</td>
+      <td style="padding:12px 16px;">${statusBadge}</td>
+      <td style="padding:12px 16px;">${downloadAction}</td>
+    `;
+    elements.historyTableBody.appendChild(tr);
+  });
+
+  renderHistoryPagination(totalPages, start + 1, end, filtered.length);
+}
+
+function renderHistoryPagination(totalPages, rangeStart, rangeEnd, filteredTotal) {
+  const container = elements.historyPagination;
+  if (!container) return;
+  container.innerHTML = "";
+  if (totalPages <= 1) return;
+
+  // Info label
+  const info = document.createElement("span");
+  info.className = "pagination-info";
+  info.textContent = `Jobs ${rangeStart}–${rangeEnd} of ${filteredTotal}`;
+  container.appendChild(info);
+
+  const nav = document.createElement("div");
+  nav.className = "pagination-nav";
+
+  // Prev button
+  const prevBtn = document.createElement("button");
+  prevBtn.className = "pagination-btn" + (historyCurrentPage === 1 ? " disabled" : "");
+  prevBtn.disabled = historyCurrentPage === 1;
+  prevBtn.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><polyline points="15 18 9 12 15 6"/></svg>`;
+  prevBtn.addEventListener("click", () => { historyCurrentPage--; renderHistoryPage(); });
+  nav.appendChild(prevBtn);
+
+  // Page number buttons (show max 5 around current)
+  const windowSize = 5;
+  let pageStart = Math.max(1, historyCurrentPage - Math.floor(windowSize / 2));
+  let pageEnd   = Math.min(totalPages, pageStart + windowSize - 1);
+  if (pageEnd - pageStart < windowSize - 1) pageStart = Math.max(1, pageEnd - windowSize + 1);
+
+  if (pageStart > 1) {
+    const firstBtn = document.createElement("button");
+    firstBtn.className = "pagination-btn";
+    firstBtn.textContent = "1";
+    firstBtn.addEventListener("click", () => { historyCurrentPage = 1; renderHistoryPage(); });
+    nav.appendChild(firstBtn);
+    if (pageStart > 2) {
+      const dots = document.createElement("span");
+      dots.className = "pagination-dots";
+      dots.textContent = "…";
+      nav.appendChild(dots);
+    }
+  }
+
+  for (let p = pageStart; p <= pageEnd; p++) {
+    const btn = document.createElement("button");
+    btn.className = "pagination-btn" + (p === historyCurrentPage ? " active" : "");
+    btn.textContent = p;
+    btn.addEventListener("click", ((pg) => () => { historyCurrentPage = pg; renderHistoryPage(); })(p));
+    nav.appendChild(btn);
+  }
+
+  if (pageEnd < totalPages) {
+    if (pageEnd < totalPages - 1) {
+      const dots = document.createElement("span");
+      dots.className = "pagination-dots";
+      dots.textContent = "…";
+      nav.appendChild(dots);
+    }
+    const lastBtn = document.createElement("button");
+    lastBtn.className = "pagination-btn";
+    lastBtn.textContent = totalPages;
+    lastBtn.addEventListener("click", () => { historyCurrentPage = totalPages; renderHistoryPage(); });
+    nav.appendChild(lastBtn);
+  }
+
+  // Next button
+  const nextBtn = document.createElement("button");
+  nextBtn.className = "pagination-btn" + (historyCurrentPage === totalPages ? " disabled" : "");
+  nextBtn.disabled = historyCurrentPage === totalPages;
+  nextBtn.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><polyline points="9 18 15 12 9 6"/></svg>`;
+  nextBtn.addEventListener("click", () => { historyCurrentPage++; renderHistoryPage(); });
+  nav.appendChild(nextBtn);
+
+  container.appendChild(nav);
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -1533,7 +1675,13 @@ async function loadOtaNodes() {
     const res = await fetch(`${API_BASE}/ota/nodes`, {
       headers: { "Authorization": `Bearer ${token}` }
     });
-    if (!res.ok) throw new Error("HTTP " + res.status);
+    if (!res.ok) {
+      if (res.status === 401) {
+        handleLogout();
+        return;
+      }
+      throw new Error("HTTP " + res.status);
+    }
     otaNodes = await res.json();
     renderOtaCards();
   } catch (e) {
@@ -1586,22 +1734,16 @@ function renderOtaCards() {
       </div>
 
 
-      <div class="ota-node-actions" style="margin-top: 10px;">
+      <div class="ota-node-actions">
         ${!isDeployed ? `
-        <button class="btn-primary" id="btn-scp-${node.id}"
-          onclick="otaSCPDeploy(${node.id})"
-          style="padding:8px 14px; font-size:var(--text-xs); flex: 1; text-align: center;">
-           SCP Deploy
+        <button class="btn-info" id="btn-scp-${node.id}" onclick="otaSCPDeploy(${node.id})">
+          <span class="icon-slot" data-icon="UploadCloud"></span> SCP Deploy
         </button>` : ""}
-        <button class="btn-primary" id="btn-rsync-${node.id}"
-          onclick="otaRsyncSync(${node.id})"
-          style="padding:8px 14px; font-size:var(--text-xs); background:var(--accent); flex: 1; text-align: center;">
-           Rsync
+        <button class="btn-success" id="btn-rsync-${node.id}" onclick="otaRsyncSync(${node.id})">
+          <span class="icon-slot" data-icon="RefreshCw"></span> Rsync
         </button>
-        <button class="btn-secondary" id="btn-logs-${node.id}"
-          onclick="openOtaLogModal(${node.id}, '${node.ip}')"
-          style="padding:8px 14px; font-size:var(--text-xs); flex: 1; text-align: center; border:none; background:var(--bg-muted);">
-           Logs
+        <button class="btn-icon" id="btn-logs-${node.id}" onclick="openOtaLogModal(${node.id}, '${node.ip}')" title="View Logs" style="width:36px; height:36px; color:var(--text-secondary);">
+          <span class="icon-slot" data-icon="Logs"></span>
         </button>
       </div>
 
